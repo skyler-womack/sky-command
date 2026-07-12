@@ -248,6 +248,15 @@ body {
   animation: breathe 3.2s ease-in-out infinite;
 }
 @keyframes breathe { 50% { transform: scale(1.06); box-shadow: 0 0 46px rgba(233,180,76,.65); } }
+/* Chloe neural core — plexus sphere canvas */
+.orbcanvas {
+  width: 152px; height: 152px;
+  display: block; margin: -6px auto 4px;
+  cursor: pointer;
+  touch-action: pan-y; /* vertical page scroll still works on mobile */
+}
+.orbcanvas.small { width: 76px; height: 76px; margin-bottom: 14px; }
+
 .corename { font-family: 'Fraunces', Georgia, serif; font-size: 21px; font-weight: 500; }
 .corename em { font-style: italic; color: var(--gold); }
 .corerole {
@@ -621,8 +630,8 @@ body {
   /* console: taller thread, full-width tabs, no iOS zoom on input */
   .console { min-height: 74vh; }
   .core { padding: 18px 16px 4px; }
-  .orb { width: 62px; height: 62px; }
-  .orb .heart { inset: 9px; }
+  .orbcanvas { width: 92px; height: 92px; }
+  .orbcanvas.small { width: 64px; height: 64px; }
   .corename { font-size: 18px; }
   .modetabs { padding: 10px 12px 0; }
   .mtab { flex: 1; text-align: center; padding: 9px 8px; }

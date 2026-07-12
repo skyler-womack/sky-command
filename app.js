@@ -109,6 +109,189 @@ function unlockFlow(blob) {
   });
 }
 
+// ── Chloe neural core: plexus sphere ────────────────────
+// Wireframe particle sphere (canvas 2D, no libs). Always rotating with
+// per-node wobble + neuron-style pulses along mesh edges. Tilts toward the
+// pointer, bursts on tap, and accelerates while Chloe is processing
+// (window.__orbBusy > 0). Honors prefers-reduced-motion with a static frame.
+window.__orbBusy = 0;
+
+class PlexusOrb {
+  constructor(canvas, { nodes = 200, k = 3 } = {}) {
+    this.cv = canvas;
+    this.cx = canvas.getContext("2d");
+    this.N = nodes;
+    this.reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // fibonacci sphere
+    this.pts = [];
+    const GA = Math.PI * (3 - Math.sqrt(5));
+    for (let i = 0; i < this.N; i++) {
+      const y = 1 - (i / (this.N - 1)) * 2;
+      const r = Math.sqrt(1 - y * y);
+      const th = GA * i;
+      this.pts.push({
+        x: Math.cos(th) * r, y, z: Math.sin(th) * r,
+        phase: Math.random() * Math.PI * 2,
+        violet: Math.random() < 0.16,
+        flare: 0,
+      });
+    }
+    // static mesh: k nearest neighbors per node
+    this.edges = [];
+    const seen = new Set();
+    for (let i = 0; i < this.N; i++) {
+      const d = [];
+      for (let j = 0; j < this.N; j++) {
+        if (i === j) continue;
+        const p = this.pts[i], q = this.pts[j];
+        d.push([((p.x - q.x) ** 2 + (p.y - q.y) ** 2 + (p.z - q.z) ** 2), j]);
+      }
+      d.sort((a, b) => a[0] - b[0]);
+      for (let n = 0; n < k; n++) {
+        const j = d[n][1];
+        const key = i < j ? i + "-" + j : j + "-" + i;
+        if (!seen.has(key)) { seen.add(key); this.edges.push([i, j]); }
+      }
+    }
+
+    this.ry = Math.random() * 6; this.rx = 0.35;
+    this.px = 0; this.py = 0;           // pointer tilt
+    this.tpx = 0; this.tpy = 0;
+    this.bounce = 0;
+    this.nextPulse = 0;
+    this.last = performance.now();
+
+    canvas.addEventListener("pointermove", (e) => {
+      const r = canvas.getBoundingClientRect();
+      this.tpx = ((e.clientX - r.left) / r.width - 0.5) * 2;
+      this.tpy = ((e.clientY - r.top) / r.height - 0.5) * 2;
+    });
+    canvas.addEventListener("pointerleave", () => { this.tpx = 0; this.tpy = 0; });
+    canvas.addEventListener("pointerdown", (e) => this.burst(e));
+
+    this.resize();
+    if (this.reduced) { this.step(16); this.draw(); }
+    else requestAnimationFrame((t) => this.loop(t));
+  }
+
+  resize() {
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    const s = this.cv.clientWidth || 120;
+    this.size = s;
+    this.cv.width = s * dpr; this.cv.height = s * dpr;
+    this.cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  burst(e) {
+    const r = this.cv.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    this.proj().forEach((p, i) => {
+      if ((p.sx - mx) ** 2 + (p.sy - my) ** 2 < 900) this.pts[i].flare = 1;
+    });
+    this.bounce = 1;
+  }
+
+  proj() {
+    const t = performance.now() / 1000;
+    const cy = Math.cos(this.ry), sy = Math.sin(this.ry);
+    const cx_ = Math.cos(this.rx), sx_ = Math.sin(this.rx);
+    const half = this.size / 2;
+    const scale = half * 0.82 * (1 + this.bounce * 0.07);
+    return this.pts.map((p) => {
+      const w = 1 + Math.sin(t * 1.1 + p.phase) * 0.035;   // thinking wobble
+      let x = p.x * w, y = p.y * w, z = p.z * w;
+      let x1 = x * cy + z * sy, z1 = -x * sy + z * cy;      // rot Y
+      let y1 = y * cx_ - z1 * sx_, z2 = y * sx_ + z1 * cx_; // rot X
+      const persp = 2.4 / (2.4 - z2 * 0.9);
+      return { sx: half + x1 * scale * persp * 0.5,
+               sy: half + y1 * scale * persp * 0.5,
+               depth: (z2 + 1) / 2, persp };
+    });
+  }
+
+  step(dt) {
+    const busy = window.__orbBusy > 0 ? 1 : 0;
+    const s = dt / 1000;
+    this.px += (this.tpx - this.px) * Math.min(1, s * 5);
+    this.py += (this.tpy - this.py) * Math.min(1, s * 5);
+    this.ry += s * (0.22 + busy * 0.8 + this.px * 0.6); // pointer steers spin
+    this.rx = 0.35 + this.py * 0.55 + Math.sin(performance.now() / 4700) * 0.12;
+    this.bounce *= Math.pow(0.92, dt / 16);
+
+    // neuron pulses
+    this.nextPulse -= dt;
+    if (this.nextPulse <= 0) {
+      this.pts[(Math.random() * this.N) | 0].flare = 1;
+      this.nextPulse = (700 + Math.random() * 1300) / (busy ? 4 : 1);
+    }
+    // propagate along edges, then decay
+    for (const [a, b] of this.edges) {
+      const fa = this.pts[a].flare, fb = this.pts[b].flare;
+      if (fa > 0.25) this.pts[b].flare = Math.max(fb, fa * 0.82);
+      else if (fb > 0.25) this.pts[a].flare = Math.max(fa, fb * 0.82);
+    }
+    const decay = Math.pow(busy ? 0.90 : 0.93, dt / 16);
+    for (const p of this.pts) p.flare *= decay;
+  }
+
+  draw() {
+    const c = this.cx, s = this.size, half = s / 2;
+    const busy = window.__orbBusy > 0 ? 1 : 0;
+    c.clearRect(0, 0, s, s);
+
+    // ambient halo
+    const g = c.createRadialGradient(half, half, s * 0.1, half, half, half);
+    g.addColorStop(0, `rgba(80,150,255,${0.16 + busy * 0.10})`);
+    g.addColorStop(1, "rgba(80,150,255,0)");
+    c.fillStyle = g;
+    c.fillRect(0, 0, s, s);
+
+    const P = this.proj();
+    c.globalCompositeOperation = "lighter";
+
+    // mesh edges
+    for (const [a, b] of this.edges) {
+      const pa = P[a], pb = P[b];
+      const depth = (pa.depth + pb.depth) / 2;
+      const flare = Math.max(this.pts[a].flare, this.pts[b].flare);
+      const alpha = 0.05 + depth * 0.16 + flare * 0.4;
+      c.strokeStyle = flare > 0.25
+        ? `rgba(190,230,255,${alpha})`
+        : `rgba(96,168,255,${alpha})`;
+      c.lineWidth = 0.5 + depth * 0.5 + flare * 0.8;
+      c.beginPath(); c.moveTo(pa.sx, pa.sy); c.lineTo(pb.sx, pb.sy); c.stroke();
+    }
+
+    // nodes
+    for (let i = 0; i < this.N; i++) {
+      const p = P[i], n = this.pts[i];
+      const rad = (0.6 + p.depth * 1.1) * p.persp * 0.9 * (1 + n.flare * 1.5);
+      const alpha = 0.25 + p.depth * 0.55 + n.flare * 0.45;
+      c.fillStyle = n.violet
+        ? `rgba(168,150,255,${alpha})`
+        : (n.flare > 0.3 ? `rgba(220,240,255,${alpha})`
+                         : `rgba(126,196,255,${alpha})`);
+      c.beginPath(); c.arc(p.sx, p.sy, rad, 0, 6.2832); c.fill();
+    }
+    c.globalCompositeOperation = "source-over";
+  }
+
+  loop(t) {
+    const dt = Math.min(50, t - this.last);
+    this.last = t;
+    this.step(dt);
+    this.draw();
+    requestAnimationFrame((tt) => this.loop(tt));
+  }
+}
+
+// both cores start immediately — the lock-screen orb greets you before unlock
+const orbs = [];
+if (el("orb-main")) orbs.push(new PlexusOrb(el("orb-main"), { nodes: 210, k: 3 }));
+if (el("orb-lock")) orbs.push(new PlexusOrb(el("orb-lock"), { nodes: 120, k: 3 }));
+addEventListener("resize", () => orbs.forEach((o) => o.resize()));
+
 // ── header ──────────────────────────────────────────────
 function renderHeader() {
   const gen = new Date(S.generatedAt);
@@ -376,6 +559,17 @@ function typingBubble() {
 }
 
 async function llm(messages) {
+  window.__orbBusy++;
+  el("core-status").textContent = "· thinking";
+  try {
+    return await llmCall(messages);
+  } finally {
+    window.__orbBusy--;
+    if (!window.__orbBusy) el("core-status").textContent = "· online";
+  }
+}
+
+async function llmCall(messages) {
   if (S.chat.provider === "anthropic") {
     const system = messages.filter((m) => m.role === "system")
       .map((m) => m.content).join("\n");

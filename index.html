@@ -65,12 +65,7 @@
         <section class="console" aria-label="Chloe command console">
           <div class="halo"></div>
           <div class="core">
-            <div class="orb">
-              <div class="ring"></div>
-              <div class="ring r2"></div>
-              <div class="ring r3"></div>
-              <div class="heart"></div>
-            </div>
+            <canvas id="orb-main" class="orbcanvas" aria-label="Chloe neural core"></canvas>
             <div class="corename">Chloe <em id="core-status">· online</em></div>
             <div class="corerole">AI Executive Assistant — Command Interface</div>
           </div>
@@ -144,11 +139,7 @@
   <!-- passphrase gate -->
   <div class="lockveil" id="lock">
     <div class="lockbox" id="lock-box">
-      <div class="orb small">
-        <div class="ring"></div>
-        <div class="ring r2"></div>
-        <div class="heart"></div>
-      </div>
+      <canvas id="orb-lock" class="orbcanvas small" aria-hidden="true"></canvas>
       <div class="locktitle mono">SKY·COMMAND</div>
       <form id="lock-form">
         <input class="mono" id="lock-input" type="password" placeholder="ENTER ACCESS CODE" autocomplete="current-password" />
