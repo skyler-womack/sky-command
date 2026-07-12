@@ -28,6 +28,29 @@
       </div>
     </header>
 
+    <!-- Chloe command console — full-width hero -->
+    <section class="console hero" aria-label="Chloe command console">
+      <div class="halo"></div>
+      <div class="core">
+        <canvas id="orb-main" class="orbcanvas" aria-label="Chloe neural core"></canvas>
+        <div class="corename">Chloe <em id="core-status">· online</em></div>
+        <div class="corerole">AI Executive Assistant — Command Interface</div>
+      </div>
+      <div class="conv">
+        <div class="modetabs" role="tablist">
+          <button class="mtab active" id="tab-chat" role="tab" aria-selected="true">💬 Chat</button>
+          <button class="mtab" id="tab-build" role="tab" aria-selected="false">🛠 Build</button>
+          <span class="modehint" id="mode-hint">ask about anything on the board</span>
+        </div>
+        <div class="thread" id="thread"></div>
+        <div class="quick" id="quick"></div>
+        <form class="inputrow" id="chatform">
+          <input id="chatinput" type="text" placeholder="Talk to Chloe — live numbers, agents, goals…" autocomplete="off" />
+          <button class="send" id="send-btn" type="submit">Send</button>
+        </form>
+      </div>
+    </section>
+
     <!-- goal layer: horizon + venture gates -->
     <div class="toprow">
       <section class="horizon" aria-label="Goal trajectory">
@@ -48,38 +71,19 @@
       </section>
     </div>
 
-    <!-- main: inbox | chloe console | briefing -->
+    <!-- primary cards: inbox | focus | briefing -->
     <div class="grid">
       <div class="col colA">
         <section class="card primary" id="card-inbox" aria-label="Sky Inbox Manager"></section>
+      </div>
+
+      <div class="col colB">
         <section class="card" aria-label="Focus this week">
           <div class="chead">
             <div class="ic" style="background:var(--goldsoft)">🎯</div>
             <span class="ctitle">Focus this week</span>
           </div>
           <ul class="focus" id="focus-list"></ul>
-        </section>
-      </div>
-
-      <div class="col colB">
-        <section class="console" aria-label="Chloe command console">
-          <div class="halo"></div>
-          <div class="core">
-            <canvas id="orb-main" class="orbcanvas" aria-label="Chloe neural core"></canvas>
-            <div class="corename">Chloe <em id="core-status">· online</em></div>
-            <div class="corerole">AI Executive Assistant — Command Interface</div>
-          </div>
-          <div class="modetabs" role="tablist">
-            <button class="mtab active" id="tab-chat" role="tab" aria-selected="true">💬 Chat</button>
-            <button class="mtab" id="tab-build" role="tab" aria-selected="false">🛠 Build</button>
-            <span class="modehint" id="mode-hint">ask about anything on the board</span>
-          </div>
-          <div class="thread" id="thread"></div>
-          <div class="quick" id="quick"></div>
-          <form class="inputrow" id="chatform">
-            <input id="chatinput" type="text" placeholder="Talk to Chloe — live numbers, agents, goals…" autocomplete="off" />
-            <button class="send" id="send-btn" type="submit">Send</button>
-          </form>
         </section>
       </div>
 

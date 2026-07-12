@@ -761,7 +761,7 @@ function initSysline() {
     const lines = sysLines();
     sysIdx = (sysIdx + 1) % lines.length;
     el("sysline-text").textContent = lines[sysIdx];
-  }, 5000);
+  }, 10000);
   setInterval(syncChip, 30000);
 }
 

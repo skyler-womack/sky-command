@@ -41,17 +41,17 @@ body {
 
 /* ── header ─────────────────────────────────────────────── */
 .top {
-  display: flex; align-items: center; gap: 18px;
-  padding-bottom: 16px; margin-bottom: 18px;
+  display: flex; align-items: center; gap: 22px;
+  padding: 8px 4px 22px; margin-bottom: 22px;
   border-bottom: 1px solid var(--line);
   flex-wrap: wrap;
 }
-.brand { display: flex; align-items: center; gap: 12px; }
-.brand img { height: 30px; opacity: 0.95; }
-.brand .divider { width: 1px; height: 26px; background: var(--line2); }
+.brand { display: flex; align-items: center; gap: 16px; }
+.brand img { height: 46px; opacity: 0.96; }
+.brand .divider { width: 1px; height: 40px; background: var(--line2); }
 .brand .title {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 13px; font-weight: 600; letter-spacing: 0.32em;
+  font-size: 19px; font-weight: 600; letter-spacing: 0.34em;
   color: var(--gold);
 }
 .brand .title span { color: var(--ink3); }
@@ -59,12 +59,12 @@ body {
 .topmeta .date { font-size: 13px; color: var(--ink2); }
 .topmeta .wx { font-size: 11px; color: var(--ink3); margin-top: 3px; }
 .sysline {
-  display: flex; align-items: center; gap: 8px;
-  font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
-  letter-spacing: 0.14em; color: var(--teal);
+  display: flex; align-items: center; gap: 9px;
+  font-family: 'JetBrains Mono', monospace; font-size: 12.5px;
+  letter-spacing: 0.15em; color: var(--teal);
   border: 1px solid rgba(79, 209, 181, 0.25);
   background: var(--tealsoft);
-  border-radius: 999px; padding: 6px 12px;
+  border-radius: 999px; padding: 9px 16px;
 }
 
 /* pulsing status dots */
@@ -228,7 +228,33 @@ body {
 }
 .console .halo {
   position: absolute; inset: 0; pointer-events: none;
-  background: radial-gradient(60% 34% at 50% 0%, rgba(233, 180, 76, 0.09), transparent 70%);
+  background: radial-gradient(60% 34% at 50% 0%, rgba(80, 150, 255, 0.10), transparent 70%);
+}
+
+/* full-width hero: big neural core on the left, chat on the right */
+.console.hero {
+  display: grid; grid-template-columns: 380px minmax(0, 1fr);
+  min-height: 460px; margin-bottom: 18px;
+}
+.console.hero .halo {
+  background: radial-gradient(46% 80% at 22% 40%, rgba(80, 150, 255, 0.12), transparent 70%);
+}
+.console.hero .core {
+  display: flex; flex-direction: column; justify-content: center; align-items: center;
+  text-align: center; padding: 24px 26px;
+  border-right: 1px solid var(--line); position: relative; z-index: 1;
+}
+.console.hero .orbcanvas { width: 248px; height: 248px; margin: 0 auto 10px; }
+.console.hero .corename { font-size: 27px; }
+.console.hero .corerole { font-size: 10.5px; margin-top: 6px; }
+.console.hero .conv {
+  display: flex; flex-direction: column; min-width: 0; position: relative; z-index: 1;
+}
+.console.hero .thread { flex: 1; }
+@media (max-width: 900px) {
+  .console.hero { grid-template-columns: 1fr; }
+  .console.hero .core { border-right: none; border-bottom: 1px solid var(--line); padding: 22px; }
+  .console.hero .orbcanvas { width: 176px; height: 176px; }
 }
 .core { padding: 26px 22px 10px; text-align: center; position: relative; }
 .orb {
@@ -447,8 +473,8 @@ body {
 .toprow .horizon { margin-bottom: 0; }
 .hsub.ytd { margin-top: 10px; color: var(--gold); font-size: 12.5px; letter-spacing: 0.02em; }
 
-/* ── main grid rebalance: bigger primary cards ──────────── */
-.grid { grid-template-columns: minmax(300px, 360px) minmax(0, 1fr) minmax(320px, 400px); }
+/* ── main grid: inbox | focus | briefing (primaries flank a slim focus) ── */
+.grid { grid-template-columns: minmax(0, 1fr) minmax(240px, 0.72fr) minmax(0, 1fr); }
 
 /* ── section heads ──────────────────────────────────────── */
 .secthead {
@@ -599,7 +625,7 @@ body {
 @media (max-width: 1180px) {
   .toprow { grid-template-columns: 1fr; }
   .grid { grid-template-columns: 1fr 1fr; }
-  .colB { grid-column: 1 / -1; grid-row: 1; }
+  .colB { grid-column: 1 / -1; grid-row: 3; }  /* focus spans full width, last */
   .console { min-height: 480px; }
 }
 
@@ -607,16 +633,16 @@ body {
   .wrap { padding: 14px 12px 44px; }
 
   /* header: compact brand + wrapping chips */
-  .top { gap: 10px; padding-bottom: 12px; margin-bottom: 14px; }
-  .brand img { height: 22px; }
-  .brand .divider { height: 20px; }
-  .brand .title { font-size: 11px; letter-spacing: 0.22em; }
-  .sysline { font-size: 9px; padding: 4px 9px; }
+  .top { gap: 12px; padding: 4px 2px 14px; margin-bottom: 16px; }
+  .brand img { height: 32px; }
+  .brand .divider { height: 28px; }
+  .brand .title { font-size: 14px; letter-spacing: 0.26em; }
+  .sysline { font-size: 11px; padding: 7px 12px; }
   .topmeta { margin-left: 0; text-align: left; width: 100%; }
 
   /* stack every multi-column region */
   .grid, .band, .finrow, .pulsegrid { grid-template-columns: 1fr; }
-  .colB { grid-column: auto; grid-row: auto; order: -1; } /* console first */
+  .colB { grid-column: auto; grid-row: auto; }
 
   /* horizon: pin the "you're here" label, shrink milestone labels */
   .horizon { padding: 16px 14px 24px; }
@@ -628,11 +654,13 @@ body {
   .hsub.ytd { font-size: 12px; }
 
   /* console: taller thread, full-width tabs, no iOS zoom on input */
-  .console { min-height: 74vh; }
-  .core { padding: 18px 16px 4px; }
-  .orbcanvas { width: 92px; height: 92px; }
+  .console { min-height: 70vh; }
+  .console.hero { min-height: 0; }
+  .core { padding: 20px 16px 6px; }
+  .orbcanvas { width: 150px; height: 150px; }
+  .console.hero .orbcanvas { width: 168px; height: 168px; }
   .orbcanvas.small { width: 64px; height: 64px; }
-  .corename { font-size: 18px; }
+  .corename, .console.hero .corename { font-size: 20px; }
   .modetabs { padding: 10px 12px 0; }
   .mtab { flex: 1; text-align: center; padding: 9px 8px; }
   .modehint { display: none; }
