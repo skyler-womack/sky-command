@@ -428,18 +428,7 @@ body {
 .foot b { color: var(--ink2); }
 
 /* ── responsive ─────────────────────────────────────────── */
-@media (max-width: 1180px) {
-  .grid { grid-template-columns: 1fr 1fr; }
-  .colB { grid-column: 1 / -1; grid-row: 1; }
-  .console { min-height: 480px; }
-  .toprow { grid-template-columns: 1fr; }
-}
-@media (max-width: 760px) {
-  .grid, .band, .pulsegrid, .hl, .finrow { grid-template-columns: 1fr; }
-  .colB { grid-column: auto; grid-row: auto; }
-  .topmeta { margin-left: 0; text-align: left; }
-  .bfpreview iframe { height: 300px; }
-}
+/* (responsive rules live at the end of this file so they win the cascade) */
 
 /* ── goal top row: horizon + gates ──────────────────────── */
 .toprow {
@@ -591,4 +580,69 @@ body {
   .fill, .you, .youlab, .bar > .f { transition: none; }
   .dot, .orb .ring, .orb .heart, .bar > .f::after, .flowline::after,
   .building-card .scan, .typing i, .bootline .cursor { animation: none; }
+}
+
+/* ════════════════════════════════════════════════════════════
+   RESPONSIVE — must stay at the END of this file so these rules
+   win the cascade over the base (same-specificity) rules above.
+   ════════════════════════════════════════════════════════════ */
+
+@media (max-width: 1180px) {
+  .toprow { grid-template-columns: 1fr; }
+  .grid { grid-template-columns: 1fr 1fr; }
+  .colB { grid-column: 1 / -1; grid-row: 1; }
+  .console { min-height: 480px; }
+}
+
+@media (max-width: 760px) {
+  .wrap { padding: 14px 12px 44px; }
+
+  /* header: compact brand + wrapping chips */
+  .top { gap: 10px; padding-bottom: 12px; margin-bottom: 14px; }
+  .brand img { height: 22px; }
+  .brand .divider { height: 20px; }
+  .brand .title { font-size: 11px; letter-spacing: 0.22em; }
+  .sysline { font-size: 9px; padding: 4px 9px; }
+  .topmeta { margin-left: 0; text-align: left; width: 100%; }
+
+  /* stack every multi-column region */
+  .grid, .band, .finrow, .pulsegrid { grid-template-columns: 1fr; }
+  .colB { grid-column: auto; grid-row: auto; order: -1; } /* console first */
+
+  /* horizon: pin the "you're here" label, shrink milestone labels */
+  .horizon { padding: 16px 14px 24px; }
+  .track { margin: 38px 22px 8px 6px; }
+  .youlab { left: 0 !important; transform: none; text-align: left; top: -32px; }
+  .nlab { width: 84px; font-size: 9.5px; }
+  .nlab strong { font-size: 10.5px; }
+  .hsub { margin-top: 48px; font-size: 12.5px; }
+  .hsub.ytd { font-size: 12px; }
+
+  /* console: taller thread, full-width tabs, no iOS zoom on input */
+  .console { min-height: 74vh; }
+  .core { padding: 18px 16px 4px; }
+  .orb { width: 62px; height: 62px; }
+  .orb .heart { inset: 9px; }
+  .corename { font-size: 18px; }
+  .modetabs { padding: 10px 12px 0; }
+  .mtab { flex: 1; text-align: center; padding: 9px 8px; }
+  .modehint { display: none; }
+  .thread { padding: 14px 12px 4px; }
+  .msg { max-width: 92%; font-size: 13px; }
+  .quick { padding: 8px 12px 0; }
+  .qc { padding: 8px 12px; }
+  .inputrow { padding: 10px 12px 14px; gap: 8px; }
+  .inputrow input { font-size: 16px; padding: 11px 12px; } /* 16px stops iOS auto-zoom */
+  .send { min-height: 44px; padding: 0 14px; }
+
+  /* cards + sections */
+  .card { padding: 15px 14px; }
+  .stat3 { gap: 6px; }
+  .stat3 .v { font-size: 17px; }
+  .secthead { margin: 20px 2px 10px; flex-wrap: wrap; }
+  .finbig .v { font-size: 23px; }
+  .bfpreview iframe { height: 300px; }
+  .bfoverlay iframe { width: 100vw; }
+  .lockbox { padding: 34px 22px; }
+  .foot { font-size: 8.5px; letter-spacing: 0.1em; line-height: 1.7; }
 }
