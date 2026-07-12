@@ -246,7 +246,10 @@ const money = (n) => (typeof n === "number"
 function finRow(k, v, opts = {}) {
   const color = opts.neg && typeof v === "number" && v !== 0 ? "var(--coral)"
     : opts.color || "var(--ink)";
-  const shown = opts.neg && typeof v === "number" && v > 0 ? `(${money(v)})` : money(v);
+  const base = opts.count
+    ? (typeof v === "number" ? v.toLocaleString() : "—")
+    : money(v);
+  const shown = opts.neg && typeof v === "number" && v > 0 ? `(${base})` : base;
   return `<div class="row"><span class="rk">${esc(k)}</span>
     <span class="rv" style="color:${color}">${shown}</span></div>`;
 }
@@ -271,9 +274,9 @@ function renderFinance() {
       <div class="s"><div class="v" style="color:var(--teal)">${money(f.crm.potential)}</div><div class="k">potential /mo</div></div>
     </div>
     ${finRow("Recurring revenue (2026)", f.crm.recurring, { color: "var(--teal)" })}
-    ${finRow(`Recurring clients`, f.crm.recurringClients)}
+    ${finRow("Recurring clients", f.crm.recurringClients, { count: true })}
     ${finRow("One-time YTD", f.crm.oneTime)}
-    ${finRow("One-time projects", f.crm.oneTimeClients)}
+    ${finRow("One-time projects", f.crm.oneTimeClients, { count: true })}
     <div class="tag" style="margin-top:8px">Sales Pipeline board · Sky Collective Portal</div>`;
 
   const b = f.billing;
@@ -373,6 +376,24 @@ function typingBubble() {
 }
 
 async function llm(messages) {
+  if (S.chat.provider === "anthropic") {
+    const system = messages.filter((m) => m.role === "system")
+      .map((m) => m.content).join("\n");
+    const rest = messages.filter((m) => m.role !== "system");
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": S.chat.apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({ model: S.chat.model, max_tokens: 1024, system, messages: rest }),
+    });
+    if (!r.ok) throw new Error("API " + r.status);
+    const d = await r.json();
+    return d.content[0].text.trim();
+  }
   const r = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
