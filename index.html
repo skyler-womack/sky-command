@@ -24,28 +24,39 @@
       </div>
     </header>
 
-    <!-- goal layer: the horizon -->
-    <section class="horizon" aria-label="Goal trajectory">
-      <div class="glow"></div>
-      <div class="hlabel"><span class="spark">◈</span><span id="hz-label"></span></div>
-      <div class="track" id="hz-track">
-        <div class="fill" id="hz-fill"></div>
-        <div class="you" id="hz-you"></div>
-        <div class="youlab" id="hz-youlab"></div>
-      </div>
-      <div class="hsub" id="hz-caption"></div>
-    </section>
+    <!-- goal layer: horizon + venture gates -->
+    <div class="toprow">
+      <section class="horizon" aria-label="Goal trajectory">
+        <div class="glow"></div>
+        <div class="hlabel"><span class="spark">◈</span><span id="hz-label"></span></div>
+        <div class="track" id="hz-track"></div>
+        <div class="hsub" id="hz-caption"></div>
+        <div class="hsub ytd" id="hz-ytd"></div>
+      </section>
 
-    <!-- main grid -->
+      <section class="card" aria-label="Venture gates">
+        <div class="chead">
+          <div class="ic" style="background:var(--coralsoft)">🔒</div>
+          <span class="ctitle">Venture gates</span>
+          <span class="cstatus" style="color:var(--ink3)">PARKING LOT</span>
+        </div>
+        <div id="gates"></div>
+      </section>
+    </div>
+
+    <!-- main: inbox | chloe console | briefing -->
     <div class="grid">
-
-      <!-- left: primary agents -->
       <div class="col colA">
         <section class="card primary" id="card-inbox" aria-label="Sky Inbox Manager"></section>
-        <section class="card primary" id="card-briefing" aria-label="CEO Daily Briefing"></section>
+        <section class="card" aria-label="Focus this week">
+          <div class="chead">
+            <div class="ic" style="background:var(--goldsoft)">🎯</div>
+            <span class="ctitle">Focus this week</span>
+          </div>
+          <ul class="focus" id="focus-list"></ul>
+        </section>
       </div>
 
-      <!-- center: the brain -->
       <div class="col colB">
         <section class="console" aria-label="Chloe command console">
           <div class="halo"></div>
@@ -56,67 +67,77 @@
               <div class="ring r3"></div>
               <div class="heart"></div>
             </div>
-            <div class="corename">Chloe <em>· online</em></div>
+            <div class="corename">Chloe <em id="core-status">· online</em></div>
             <div class="corerole">AI Executive Assistant — Command Interface</div>
+          </div>
+          <div class="modetabs" role="tablist">
+            <button class="mtab active" id="tab-chat" role="tab" aria-selected="true">💬 Chat</button>
+            <button class="mtab" id="tab-build" role="tab" aria-selected="false">🛠 Build</button>
+            <span class="modehint" id="mode-hint">ask about anything on the board</span>
           </div>
           <div class="thread" id="thread"></div>
           <div class="quick" id="quick"></div>
           <form class="inputrow" id="chatform">
-            <input id="chatinput" type="text" placeholder="Talk to the system — “inbox status”, “where’s my briefing?”, “pipeline”…" autocomplete="off" />
-            <button class="send" type="submit">Send</button>
+            <input id="chatinput" type="text" placeholder="Talk to Chloe — live numbers, agents, goals…" autocomplete="off" />
+            <button class="send" id="send-btn" type="submit">Send</button>
           </form>
         </section>
       </div>
 
-      <!-- right: goals detail + connections -->
       <div class="col colC">
-        <section class="card" aria-label="Focus this week">
-          <div class="chead">
-            <div class="ic" style="background:var(--goldsoft)">🎯</div>
-            <span class="ctitle">Focus this week</span>
-          </div>
-          <ul class="focus" id="focus-list"></ul>
-        </section>
-
-        <section class="card" aria-label="Venture gates">
-          <div class="chead">
-            <div class="ic" style="background:var(--coralsoft)">🔒</div>
-            <span class="ctitle">Venture gates</span>
-            <span class="cstatus" style="color:var(--ink3)">PARKING LOT</span>
-          </div>
-          <div id="gates"></div>
-        </section>
-
-        <section class="card nodecard" aria-label="Connected systems">
-          <div class="chead">
-            <div class="ic" style="background:var(--tealsoft)">🛰</div>
-            <span class="ctitle">Connected systems</span>
-            <span class="cstatus">LOVABLE</span>
-          </div>
-          <div id="connections"></div>
-        </section>
+        <section class="card primary" id="card-briefing" aria-label="CEO Daily Briefing"></section>
       </div>
     </div>
+
+    <!-- financial pulse -->
+    <section aria-label="Financial pulse">
+      <div class="secthead">
+        <span class="ctitle">Financial pulse — live from Lovable</span>
+        <span class="cstatus" id="fin-status"></span>
+      </div>
+      <div class="finrow">
+        <div class="card" id="card-crm"></div>
+        <div class="card" id="card-billing"></div>
+      </div>
+    </section>
+
+    <!-- active agents -->
+    <section aria-label="Active agents">
+      <div class="secthead">
+        <span class="ctitle">Active agents</span>
+        <span class="cstatus" id="agents-status"></span>
+      </div>
+      <div class="agentsgrid" id="agentsgrid"></div>
+    </section>
 
     <!-- bottom band -->
     <div class="band">
       <section class="card building-card" id="card-checkin" aria-label="Sky Weekly Check-in — in development"></section>
-      <section class="card" aria-label="Utility agents">
+      <section class="card nodecard" aria-label="Connected systems">
         <div class="chead">
-          <div class="ic" style="background:var(--violetsoft)">🫀</div>
-          <span class="ctitle">Utility agents</span>
-          <span class="cstatus" style="color:var(--ink3)">SURFACE VIA DAILY BRIEFING</span>
+          <div class="ic" style="background:var(--tealsoft)">🛰</div>
+          <span class="ctitle">Connected systems</span>
+          <span class="cstatus">LOVABLE</span>
         </div>
-        <div class="pulsegrid" id="pulsegrid"></div>
+        <div id="connections"></div>
       </section>
     </div>
 
     <footer class="foot">
-      PROTOTYPE · STATIC STATE FROM <b>data.js</b> · SWAP FOR <b>/api/state</b> WHEN AGENTS REPORT LIVE
+      SKY COMMAND · ENCRYPTED STATE · AUTO-REFRESH 30 MIN · BUILD MODE DISPATCHES TO CODEX QUEUE
     </footer>
   </div>
 
-  <!-- passphrase gate — shown only when serving encrypted state -->
+  <!-- briefing full-screen overlay -->
+  <div class="bfoverlay" id="bf-overlay">
+    <div class="bfbar">
+      <span class="ctitle">CEO Daily Briefing — full view</span>
+      <button class="qc" id="bf-close">✕ Close</button>
+    </div>
+    <iframe id="bf-frame" sandbox="allow-same-origin" title="CEO Daily Briefing"></iframe>
+  </div>
+
+  <!-- passphrase gate -->
   <div class="lockveil" id="lock">
     <div class="lockbox" id="lock-box">
       <div class="orb small">

@@ -1,13 +1,19 @@
-// SKY COMMAND — render + live-state layer.
+// SKY COMMAND — render + live-state + live-chat layer.
 //
-// Boot order:
-//   1. try state.json  (plaintext — local dev only)
-//   2. try state.enc   (AES-256-GCM blob published by
-//      ~/.claude/bin/sky_command_publish.py) → passphrase unlock screen
-// Re-polls every 5 minutes and re-renders when generatedAt changes.
+// Boot: state.json (dev) → state.enc (AES-256-GCM, passphrase unlock).
+// Chat mode  → OpenAI chat completions with Chloe's live-state system prompt.
+// Build mode → model writes a Codex task brief → user confirms → brief is
+//              encrypted with the session key and committed to the GitHub
+//              repo (briefs/pending/) → Mac publisher ingests → hourly
+//              in-app task moves it into CodeX/framework/queue/incoming.
+// Re-polls state every 5 minutes.
 
 let S = null;
 let chatWired = false;
+let mode = "chat";               // "chat" | "build"
+let history = [];                 // chat-mode conversation history
+let sessionKeyBits = null;        // raw AES key after unlock (for briefs)
+let pendingBrief = null;
 
 const POLL_MS = 5 * 60 * 1000;
 const KEY_CACHE = "skycmd_key_v1";
@@ -19,22 +25,29 @@ const esc = (s) =>
 
 // ── crypto ──────────────────────────────────────────────
 const b64d = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+const b64e = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
 
 async function deriveKey(passphrase, saltB64, iterations) {
   const base = await crypto.subtle.importKey(
     "raw", new TextEncoder().encode(passphrase), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits(
+  return crypto.subtle.deriveBits(
     { name: "PBKDF2", hash: "SHA-256", salt: b64d(saltB64), iterations },
     base, 256);
-  return bits;
 }
 
 async function decryptState(blob, keyBits) {
-  const key = await crypto.subtle.importKey(
-    "raw", keyBits, "AES-GCM", false, ["decrypt"]);
+  const key = await crypto.subtle.importKey("raw", keyBits, "AES-GCM", false, ["decrypt"]);
   const pt = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: b64d(blob.iv) }, key, b64d(blob.ct));
   return JSON.parse(new TextDecoder().decode(pt));
+}
+
+async function encryptForRepo(obj) {
+  const key = await crypto.subtle.importKey("raw", sessionKeyBits, "AES-GCM", false, ["encrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv }, key, new TextEncoder().encode(JSON.stringify(obj)));
+  return JSON.stringify({ v: 1, iv: b64e(iv), ct: b64e(ct) });
 }
 
 // ── state loading ───────────────────────────────────────
@@ -46,21 +59,25 @@ async function fetchJSON(url) {
 
 async function loadState({ interactive }) {
   try {
-    return await fetchJSON("state.json"); // local dev
-  } catch { /* fall through to encrypted */ }
+    const dev = await fetchJSON("state.json");
+    sessionKeyBits = sessionKeyBits || new ArrayBuffer(32); // dev mode placeholder
+    return dev;
+  } catch { /* encrypted path */ }
 
   const blob = await fetchJSON("state.enc");
-
   const cached = localStorage.getItem(KEY_CACHE);
   if (cached) {
     try {
-      return await decryptState(blob, b64d(cached).buffer);
+      const bits = b64d(cached).buffer;
+      const st = await decryptState(blob, bits);
+      sessionKeyBits = bits;
+      return st;
     } catch {
-      localStorage.removeItem(KEY_CACHE); // key rotated or corrupt
+      localStorage.removeItem(KEY_CACHE);
     }
   }
   if (!interactive) throw new Error("locked");
-  return await unlockFlow(blob);
+  return unlockFlow(blob);
 }
 
 function unlockFlow(blob) {
@@ -76,8 +93,8 @@ function unlockFlow(blob) {
       try {
         const bits = await deriveKey(pass, blob.salt, blob.iter);
         const state = await decryptState(blob, bits);
-        localStorage.setItem(KEY_CACHE,
-          btoa(String.fromCharCode(...new Uint8Array(bits))));
+        sessionKeyBits = bits;
+        localStorage.setItem(KEY_CACHE, b64e(bits));
         overlay.classList.remove("show");
         resolve(state);
       } catch {
@@ -105,18 +122,17 @@ function renderHeader() {
 function syncChip() {
   if (!S) return;
   const mins = Math.max(0, Math.round((Date.now() - new Date(S.generatedAt)) / 60000));
-  const ago = mins < 1 ? "just now"
-    : mins < 60 ? mins + "m ago"
-    : Math.round(mins / 60) + "h ago";
+  const ago = mins < 1 ? "just now" : mins < 60 ? mins + "m ago" : Math.round(mins / 60) + "h ago";
   el("sync-text").textContent = "SYNCED " + ago.toUpperCase();
   el("sync-dot").className = "dot " + (mins < 90 ? "ok" : "gold");
 }
 
-// ── horizon (goal layer) ────────────────────────────────
+// ── horizon + gates ─────────────────────────────────────
 function renderHorizon() {
   const h = S.goals.horizon;
   el("hz-label").textContent = h.label;
   el("hz-caption").innerHTML = h.caption;
+  el("hz-ytd").textContent = h.ytdLine || "";
 
   const track = el("hz-track");
   track.innerHTML =
@@ -128,8 +144,7 @@ function renderHorizon() {
       <div class="nlab" style="left:${n.pos}%"><strong>${esc(n.label)}</strong>${esc(n.sub)}</div>
     `).join("");
 
-  el("hz-youlab").innerHTML =
-    `you're here · <span class="v">${esc(h.currentLabel)}</span>`;
+  el("hz-youlab").innerHTML = `you're here · <span class="v">${esc(h.currentLabel)}</span>`;
   requestAnimationFrame(() =>
     setTimeout(() => {
       el("hz-fill").style.width = h.currentPct + "%";
@@ -138,7 +153,23 @@ function renderHorizon() {
     }, 150));
 }
 
-// ── primary agents ──────────────────────────────────────
+function renderGates() {
+  el("gates").innerHTML = S.goals.gates.map((g) => {
+    const near = g.state === "near";
+    return `
+      <div class="gate ${near ? "near" : ""}">
+        <div class="glock ${near ? "near" : ""}">${near ? "🔓" : "🔒"}</div>
+        <div style="flex:1;min-width:0">
+          <div class="gname">${esc(g.name)}</div>
+          <div class="gcond">${esc(g.cond)}</div>
+          ${near ? `<div class="gmini"><div style="width:${g.pct}%"></div></div>` : ""}
+        </div>
+        <span class="gpill ${near ? "near" : ""}">${near ? g.pct + "% there" : "Locked"}</span>
+      </div>`;
+  }).join("");
+}
+
+// ── primary cards ───────────────────────────────────────
 function renderInbox() {
   const a = S.inboxManager;
   const pct = Math.min(100, Math.round((a.batch.processed / a.batch.target) * 100));
@@ -168,6 +199,7 @@ function renderInbox() {
 
 function renderBriefing() {
   const b = S.briefing;
+  const hasHtml = !!(b.html && b.html.length > 500);
   el("card-briefing").innerHTML = `
     <div class="chead">
       <div class="ic" style="background:var(--goldsoft)">📊</div>
@@ -178,41 +210,129 @@ function renderBriefing() {
     <div class="hl">
       ${b.highlights.map((h) => {
         const color = h.tone === "gold" ? "var(--gold)"
-          : h.tone === "attention" ? "var(--coral)"
-          : "var(--ink)";
-        return `
-        <div class="h"><span class="k">${esc(h.k)}</span>
-        <span class="v" style="color:${color}">${esc(h.v)}</span></div>`;
+          : h.tone === "attention" ? "var(--coral)" : "var(--ink)";
+        return `<div class="h"><span class="k">${esc(h.k)}</span>
+          <span class="v" style="color:${color}">${esc(h.v)}</span></div>`;
       }).join("")}
     </div>
     <div class="feeds">
       ${b.feeds.map((f) => `
         <span class="feed ${f.fresh ? "live" : "stale"}"><span class="fd"></span>${esc(f.name)}${f.fresh ? "" : " · stale"}</span>
       `).join("")}
-    </div>`;
+    </div>
+    ${hasHtml ? `
+      <div class="bfpreview">
+        <iframe id="bf-mini" sandbox="allow-same-origin" title="Briefing preview"></iframe>
+        <button class="qc bfexpand" id="bf-open">⤢ Open full briefing</button>
+      </div>` : ""}`;
+  if (hasHtml) {
+    el("bf-mini").srcdoc = b.html;
+    el("bf-open").onclick = () => {
+      el("bf-frame").srcdoc = b.html;
+      el("bf-overlay").classList.add("show");
+    };
+  }
 }
 
-// ── right column ────────────────────────────────────────
+// ── focus / finance / agents ────────────────────────────
 function renderFocus() {
   el("focus-list").innerHTML = S.goals.focus
-    .map((f) => `<li class="${f.tone}">${esc(f.text)}</li>`)
-    .join("");
+    .map((f) => `<li class="${f.tone}">${esc(f.text)}</li>`).join("");
 }
 
-function renderGates() {
-  el("gates").innerHTML = S.goals.gates.map((g) => {
-    const near = g.state === "near";
-    return `
-      <div class="gate ${near ? "near" : ""}">
-        <div class="glock ${near ? "near" : ""}">${near ? "🔓" : "🔒"}</div>
-        <div style="flex:1;min-width:0">
-          <div class="gname">${esc(g.name)}</div>
-          <div class="gcond">${esc(g.cond)}</div>
-          ${near ? `<div class="gmini"><div style="width:${g.pct}%"></div></div>` : ""}
-        </div>
-        <span class="gpill ${near ? "near" : ""}">${near ? g.pct + "% there" : "Locked"}</span>
-      </div>`;
-  }).join("");
+const money = (n) => (typeof n === "number"
+  ? (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString() : "—");
+
+function finRow(k, v, opts = {}) {
+  const color = opts.neg && typeof v === "number" && v !== 0 ? "var(--coral)"
+    : opts.color || "var(--ink)";
+  const shown = opts.neg && typeof v === "number" && v > 0 ? `(${money(v)})` : money(v);
+  return `<div class="row"><span class="rk">${esc(k)}</span>
+    <span class="rv" style="color:${color}">${shown}</span></div>`;
+}
+
+function renderFinance() {
+  const f = S.finance;
+  el("fin-status").innerHTML =
+    `<span class="dot ${f.billing.live && f.crm.live ? "ok" : "gold"}"></span>` +
+    (f.billing.live && f.crm.live ? "BOTH APIS LIVE" : "PARTIAL — CACHED DATA IN USE");
+
+  el("card-crm").innerHTML = `
+    <div class="finhead">
+      <div class="chead" style="margin-bottom:0">
+        <div class="ic" style="background:var(--tealsoft)">🎯</div>
+        <span class="ctitle">Active CRM Leads</span>
+      </div>
+      <span class="finpill ${f.crm.live ? "live" : "cached"}">${f.crm.live ? "LIVE" : "CACHED " + esc(f.crm.asOf || "")}</span>
+    </div>
+    <div class="stat3" style="margin-top:14px">
+      <div class="s"><div class="v" style="color:var(--gold)">${f.crm.hot ?? "—"}</div><div class="k">hot 🔥</div></div>
+      <div class="s"><div class="v">${f.crm.warm ?? "—"}</div><div class="k">warm 🌡️</div></div>
+      <div class="s"><div class="v" style="color:var(--teal)">${money(f.crm.potential)}</div><div class="k">potential /mo</div></div>
+    </div>
+    ${finRow("Recurring revenue (2026)", f.crm.recurring, { color: "var(--teal)" })}
+    ${finRow(`Recurring clients`, f.crm.recurringClients)}
+    ${finRow("One-time YTD", f.crm.oneTime)}
+    ${finRow("One-time projects", f.crm.oneTimeClients)}
+    <div class="tag" style="margin-top:8px">Sales Pipeline board · Sky Collective Portal</div>`;
+
+  const b = f.billing;
+  const netColor = typeof b.net === "number" && b.net < 0 ? "var(--coral)" : "var(--teal)";
+  el("card-billing").innerHTML = `
+    <div class="finhead">
+      <div class="chead" style="margin-bottom:0">
+        <div class="ic" style="background:var(--goldsoft)">💵</div>
+        <span class="ctitle">Billing Buddy — ${esc(b.month || "this month")}</span>
+      </div>
+      <span class="finpill ${b.live ? "live" : "cached"}">${b.live ? "LIVE" : "CACHED " + esc(b.asOf || "")}</span>
+    </div>
+    <div class="finbig">
+      <span class="v" style="color:${netColor}">${money(b.net)}</span>
+      <span class="lab">net profit · ${esc((b.status || "").replace("_", " "))}</span>
+    </div>
+    ${finRow("Total revenue", b.revenue, { color: "var(--ink)" })}
+    ${finRow("· Retainers", b.retainer)}
+    ${finRow("· Projects", b.project)}
+    ${finRow("PM base pay", b.pmBasePay, { neg: true })}
+    ${finRow("Project payouts", b.projectPayouts, { neg: true })}
+    ${finRow("Total payouts", b.totalPayouts, { neg: true })}
+    ${finRow("Monthly overhead", b.overhead, { neg: true })}
+    <div class="tag" style="margin-top:8px">financial_pulse · excludes owner</div>`;
+}
+
+function renderAgents() {
+  const alerts = S.agents.filter((a) => a.status === "alert").length;
+  el("agents-status").innerHTML = alerts
+    ? `<span class="dot warn"></span>${alerts} NEED${alerts === 1 ? "S" : ""} ATTENTION`
+    : `<span class="dot ok"></span>ALL GREEN`;
+  el("agentsgrid").innerHTML = S.agents.map((a) => `
+    <div class="agent ${a.status === "alert" ? "alert" : ""}">
+      <div class="ahead">
+        <span class="dot ${a.status === "alert" ? "warn" : "ok"}"></span>
+        <span class="aname">${esc(a.name)}</span>
+      </div>
+      <div class="adesc">${esc(a.desc)}</div>
+      <div class="ameta"><span>${esc(a.schedule)}</span><b>next ${esc(a.nextRun)}</b></div>
+      <div class="anote">${esc(a.note)}</div>
+    </div>`).join("");
+}
+
+// ── bottom band ─────────────────────────────────────────
+function renderCheckin() {
+  const c = S.checkin;
+  el("card-checkin").innerHTML = `
+    <div class="scan"></div>
+    <div class="chead">
+      <div class="ic" style="background:var(--goldsoft)">🌅</div>
+      <span class="ctitle">${esc(c.name)}</span>
+      <span class="cstatus building"><span class="dot gold"></span>COMING ONLINE</span>
+    </div>
+    <div class="smallnote">${esc(c.note)}</div>
+    <div class="ghostcats">
+      ${c.categories.map((n) => `
+        <div class="gc">${esc(n)}<div class="gbar"><div></div></div></div>`).join("")}
+    </div>
+    <div class="bootline">initializing weekly ritual … ${c.progressPct}% built<span class="cursor">▊</span></div>`;
 }
 
 function renderConnections() {
@@ -230,40 +350,12 @@ function renderConnections() {
     </div>`).join("");
 }
 
-// ── bottom band ─────────────────────────────────────────
-function renderCheckin() {
-  const c = S.checkin;
-  el("card-checkin").innerHTML = `
-    <div class="scan"></div>
-    <div class="chead">
-      <div class="ic" style="background:var(--goldsoft)">🌅</div>
-      <span class="ctitle">${esc(c.name)}</span>
-      <span class="cstatus building"><span class="dot gold"></span>COMING ONLINE</span>
-    </div>
-    <div class="smallnote">${esc(c.note)}</div>
-    <div class="ghostcats">
-      ${c.categories.map((n) => `
-        <div class="gc">${esc(n)}<div class="gbar"><div></div></div></div>
-      `).join("")}
-    </div>
-    <div class="bootline">initializing weekly ritual … ${c.progressPct}% built<span class="cursor">▊</span></div>`;
-}
-
-function renderPulse() {
-  const dot = { ok: "ok", stale: "stale", alert: "warn", idle: "idle" };
-  el("pulsegrid").innerHTML = S.pulseAgents.map((p) => `
-    <div class="pa ${p.state === "alert" ? "alert" : ""}">
-      <span class="dot ${dot[p.state]}"></span>
-      <div><div class="nm">${esc(p.name)}</div><div class="st">${esc(p.note)}</div></div>
-    </div>`).join("");
-}
-
 // ── chat console ────────────────────────────────────────
 const thread = () => el("thread");
 
-function addMsg(who, text) {
+function addMsg(who, text, cls) {
   const div = document.createElement("div");
-  div.className = "msg " + who;
+  div.className = "msg " + who + (cls ? " " + cls : "");
   div.innerHTML =
     `<div class="who">${who === "chloe" ? "Chloe" : "Sky"}</div>${esc(text)}`;
   thread().appendChild(div);
@@ -271,40 +363,156 @@ function addMsg(who, text) {
   return div;
 }
 
-function chloeReply(userText) {
-  const t = userText.toLowerCase();
-  const hit = S.chat.responses.find((r) => r.match.some((m) => t.includes(m)));
-  const reply = hit ? hit.reply : S.chat.fallback;
-
-  const typing = document.createElement("div");
-  typing.className = "msg chloe";
-  typing.innerHTML =
-    `<div class="who">Chloe</div><span class="typing"><i></i><i></i><i></i></span>`;
-  thread().appendChild(typing);
+function typingBubble() {
+  const t = document.createElement("div");
+  t.className = "msg chloe";
+  t.innerHTML = `<div class="who">Chloe</div><span class="typing"><i></i><i></i><i></i></span>`;
+  thread().appendChild(t);
   thread().scrollTop = thread().scrollHeight;
+  return t;
+}
 
-  setTimeout(() => {
-    typing.remove();
+async function llm(messages) {
+  const r = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + S.chat.apiKey,
+    },
+    body: JSON.stringify({ model: S.chat.model, messages, temperature: 0.4 }),
+  });
+  if (!r.ok) throw new Error("API " + r.status);
+  const d = await r.json();
+  return d.choices[0].message.content.trim();
+}
+
+async function chatTurn(text) {
+  addMsg("you", text);
+  const t = typingBubble();
+  try {
+    history.push({ role: "user", content: text });
+    history = history.slice(-S.chat.maxHistory);
+    const reply = await llm([
+      { role: "system", content: S.chat.system }, ...history]);
+    history.push({ role: "assistant", content: reply });
+    t.remove();
     addMsg("chloe", reply);
-  }, 700 + Math.random() * 600);
+  } catch (e) {
+    t.remove();
+    addMsg("chloe", "Live chat is unreachable right now (" + e.message +
+      "). The board itself is still current — try again in a moment.");
+  }
+}
+
+async function buildTurn(text) {
+  addMsg("you", text);
+  const t = typingBubble();
+  try {
+    const raw = await llm([
+      { role: "system", content: S.chat.buildSystem },
+      { role: "user", content: text }]);
+    const brief = JSON.parse(raw.replace(/^```json?|```$/g, "").trim());
+    brief.dispatched_at = new Date().toISOString();
+    pendingBrief = brief;
+    t.remove();
+    const div = document.createElement("div");
+    div.className = "msg chloe brief-preview";
+    div.innerHTML =
+      `<div class="who">Chloe · task brief</div>
+       <b>${esc(brief.title || brief.task_id)}</b>
+       <span class="gpill" style="margin-left:8px">${esc(brief.agent)} · ${esc(brief.permission_level)}</span>
+       <pre>${esc(JSON.stringify(brief, null, 2))}</pre>
+       <div class="briefbtns">
+         <button class="send teal" id="brief-go">⚡ Queue it</button>
+         <button class="send ghost" id="brief-no">Cancel</button>
+       </div>`;
+    thread().appendChild(div);
+    thread().scrollTop = thread().scrollHeight;
+    div.querySelector("#brief-go").onclick = () => dispatchBrief(div);
+    div.querySelector("#brief-no").onclick = () => {
+      pendingBrief = null;
+      div.remove();
+      addMsg("chloe", "Cancelled — nothing was queued.");
+    };
+  } catch (e) {
+    t.remove();
+    addMsg("chloe", "Couldn't draft that brief (" + e.message + "). Rephrase and try again.");
+  }
+}
+
+async function dispatchBrief(previewDiv) {
+  if (!pendingBrief) return;
+  const brief = pendingBrief;
+  pendingBrief = null;
+  previewDiv.querySelector(".briefbtns").innerHTML =
+    `<span class="tag">Dispatching…</span>`;
+  try {
+    const name = (brief.task_id || "brief_" + Date.now()) + ".json.enc";
+    const enc = await encryptForRepo(brief);
+    const r = await fetch(
+      `https://api.github.com/repos/${S.chat.ghRepo}/contents/briefs/pending/${name}`, {
+        method: "PUT",
+        headers: {
+          Authorization: "Bearer " + S.chat.ghToken,
+          Accept: "application/vnd.github+json",
+        },
+        body: JSON.stringify({
+          message: "build-mode brief: " + (brief.task_id || name),
+          content: btoa(unescape(encodeURIComponent(enc))),
+        }),
+      });
+    if (!r.ok) throw new Error("GitHub " + r.status);
+    previewDiv.querySelector(".briefbtns").innerHTML =
+      `<span class="tag" style="color:var(--teal)">✓ Queued</span>`;
+    addMsg("chloe", `Dispatched. “${brief.title || brief.task_id}” is en route to the ` +
+      `${brief.agent} agent — the Mac ingests it within ~30 min and it lands in the ` +
+      `Codex queue on the next hourly sync. Permission level: ${brief.permission_level}.`);
+  } catch (e) {
+    previewDiv.querySelector(".briefbtns").innerHTML =
+      `<span class="tag" style="color:var(--coral)">✗ Dispatch failed — ${esc(e.message)}</span>`;
+  }
+}
+
+function setMode(m) {
+  mode = m;
+  const isBuild = m === "build";
+  el("tab-chat").classList.toggle("active", !isBuild);
+  el("tab-build").classList.toggle("active", isBuild);
+  el("tab-build").classList.toggle("build", isBuild);
+  el("tab-chat").setAttribute("aria-selected", String(!isBuild));
+  el("tab-build").setAttribute("aria-selected", String(isBuild));
+  document.querySelector(".console").classList.toggle("buildmode", isBuild);
+  el("mode-hint").textContent = isBuild
+    ? "describe a task → Chloe writes the brief → you approve → Codex queue"
+    : "ask about anything on the board";
+  el("chatinput").placeholder = isBuild
+    ? "Describe the task to dispatch — e.g. “have research pull 990s for the 12 hot leads”"
+    : "Talk to Chloe — live numbers, agents, goals…";
+  el("send-btn").textContent = isBuild ? "Draft brief" : "Send";
+  el("send-btn").style.background = isBuild ? "var(--teal)" : "var(--gold)";
 }
 
 function initChat() {
   if (thread().children.length === 0) {
-    S.chat.seed.forEach((m) => addMsg(m.who, m.text));
+    (S.chat.seed || []).forEach((m) => addMsg(m.who, m.text));
+    if (!S.chat.apiKey) {
+      addMsg("chloe", "Note: no chat API key found in state — live chat is offline this cycle.");
+    }
   }
   if (chatWired) return;
   chatWired = true;
 
-  const quick = ["Inbox status", "Where's my briefing?", "Pipeline", "How am I tracking on goals?"];
+  el("tab-chat").onclick = () => setMode("chat");
+  el("tab-build").onclick = () => setMode("build");
+
+  const quick = ["Inbox status", "How's my pipeline?", "Any agent problems?", "How am I tracking on goals?"];
   el("quick").innerHTML = quick
-    .map((q) => `<button type="button" class="qc">${esc(q)}</button>`)
-    .join("");
+    .map((q) => `<button type="button" class="qc">${esc(q)}</button>`).join("");
   el("quick").addEventListener("click", (e) => {
     const btn = e.target.closest(".qc");
     if (!btn) return;
-    addMsg("you", btn.textContent);
-    chloeReply(btn.textContent);
+    setMode("chat");
+    chatTurn(btn.textContent);
   });
 
   el("chatform").addEventListener("submit", (e) => {
@@ -313,26 +521,26 @@ function initChat() {
     const v = input.value.trim();
     if (!v) return;
     input.value = "";
-    addMsg("you", v);
-    chloeReply(v);
+    (mode === "build" ? buildTurn : chatTurn)(v);
   });
+
+  el("bf-close").onclick = () => el("bf-overlay").classList.remove("show");
 }
 
 // ── ambient system line ─────────────────────────────────
+let sysIdx = 0;
 function sysLines() {
   const lines = ["ALL SYSTEMS NOMINAL"];
   if (S) {
+    const alerts = S.agents ? S.agents.filter((a) => a.status === "alert").length : 0;
+    lines.push(alerts ? `${alerts} AGENT${alerts === 1 ? "" : "S"} NEED ATTENTION` : "ALL AGENTS GREEN");
     const fresh = S.briefing.feeds.filter((f) => f.fresh).length;
     lines.push(`FEEDS · ${fresh}/${S.briefing.feeds.length} LIVE`);
-    if (S.goals.focus[0]) {
-      lines.push("FOCUS · " + S.goals.focus[0].text.slice(0, 40).toUpperCase());
-    }
-    lines.push("NEXT GATE · DEBT-FREE");
+    if (S.goals.focus[0]) lines.push("FOCUS · " + S.goals.focus[0].text.slice(0, 40).toUpperCase());
   }
   return lines;
 }
 
-let sysIdx = 0;
 function initSysline() {
   setInterval(() => {
     const lines = sysLines();
@@ -346,13 +554,14 @@ function initSysline() {
 function renderAll() {
   renderHeader();
   renderHorizon();
+  renderGates();
   renderInbox();
   renderBriefing();
   renderFocus();
-  renderGates();
-  renderConnections();
+  renderFinance();
+  renderAgents();
   renderCheckin();
-  renderPulse();
+  renderConnections();
   initChat();
 
   requestAnimationFrame(() =>
@@ -386,7 +595,7 @@ async function boot() {
       } else {
         syncChip();
       }
-    } catch { /* offline or locked — keep showing last state */ }
+    } catch { /* offline — keep last state */ }
   }, POLL_MS);
 }
 

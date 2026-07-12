@@ -432,12 +432,126 @@ body {
   .grid { grid-template-columns: 1fr 1fr; }
   .colB { grid-column: 1 / -1; grid-row: 1; }
   .console { min-height: 480px; }
+  .toprow { grid-template-columns: 1fr; }
 }
 @media (max-width: 760px) {
-  .grid, .band, .pulsegrid, .hl { grid-template-columns: 1fr; }
+  .grid, .band, .pulsegrid, .hl, .finrow { grid-template-columns: 1fr; }
   .colB { grid-column: auto; grid-row: auto; }
   .topmeta { margin-left: 0; text-align: left; }
+  .bfpreview iframe { height: 300px; }
 }
+
+/* ── goal top row: horizon + gates ──────────────────────── */
+.toprow {
+  display: grid; grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 18px; margin-bottom: 18px; align-items: stretch;
+}
+.toprow .horizon { margin-bottom: 0; }
+.hsub.ytd { margin-top: 10px; color: var(--gold); font-size: 12.5px; letter-spacing: 0.02em; }
+
+/* ── main grid rebalance: bigger primary cards ──────────── */
+.grid { grid-template-columns: minmax(300px, 360px) minmax(0, 1fr) minmax(320px, 400px); }
+
+/* ── section heads ──────────────────────────────────────── */
+.secthead {
+  display: flex; align-items: center; gap: 10px;
+  margin: 26px 2px 12px;
+}
+.secthead .cstatus { margin-left: 0; }
+
+/* ── mode tabs (chat / build) ───────────────────────────── */
+.modetabs {
+  display: flex; align-items: center; gap: 6px;
+  padding: 12px 20px 0;
+}
+.mtab {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600;
+  letter-spacing: 0.08em;
+  background: var(--bg2); color: var(--ink3);
+  border: 1px solid var(--line); border-bottom: none;
+  border-radius: 10px 10px 0 0; padding: 8px 16px; cursor: pointer;
+}
+.mtab.active { color: var(--gold); border-color: var(--goldline); background: var(--panel); }
+.mtab.active.build { color: var(--teal); border-color: rgba(79, 209, 181, 0.4); }
+.modehint { margin-left: auto; font-size: 10.5px; color: var(--ink3); font-style: italic; }
+.console.buildmode { border-color: rgba(79, 209, 181, 0.35); }
+.console.buildmode .halo {
+  background: radial-gradient(60% 34% at 50% 0%, rgba(79, 209, 181, 0.08), transparent 70%);
+}
+.msg.brief-preview {
+  align-self: stretch; max-width: 100%;
+  background: var(--bg2); border: 1px solid rgba(79, 209, 181, 0.35);
+  border-left: 3px solid var(--teal);
+}
+.msg.brief-preview pre {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.5;
+  color: var(--ink2); white-space: pre-wrap; word-break: break-word;
+  max-height: 220px; overflow-y: auto; margin: 8px 0;
+  background: var(--bg); border-radius: 8px; padding: 10px;
+}
+.briefbtns { display: flex; gap: 8px; margin-top: 4px; }
+.briefbtns .send.ghost { background: transparent; color: var(--ink2); border: 1px solid var(--line2); }
+.briefbtns .send.teal { background: var(--teal); }
+
+/* ── briefing preview iframe ────────────────────────────── */
+.bfpreview {
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  margin-top: 12px; position: relative; background: #0b0f1d;
+}
+.bfpreview iframe {
+  width: 100%; height: 380px; border: 0; display: block;
+  pointer-events: none;
+}
+.bfpreview .bfexpand {
+  position: absolute; right: 10px; bottom: 10px;
+}
+.bfoverlay {
+  position: fixed; inset: 0; z-index: 60; display: none;
+  flex-direction: column; background: rgba(10, 14, 26, 0.97);
+}
+.bfoverlay.show { display: flex; }
+.bfbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 22px; border-bottom: 1px solid var(--line);
+}
+.bfoverlay iframe { flex: 1; border: 0; width: min(860px, 96vw); margin: 0 auto; background: #0b0f1d; }
+
+/* ── financial pulse row ────────────────────────────────── */
+.finrow { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.finhead { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
+.finhead .src { font-size: 10.5px; color: var(--ink3); }
+.finbig { display: flex; align-items: baseline; gap: 10px; margin: 10px 0 4px; }
+.finbig .v { font-family: 'JetBrains Mono', monospace; font-size: 28px; font-weight: 600; }
+.finbig .lab { font-size: 11px; color: var(--ink3); text-transform: uppercase; letter-spacing: 0.08em; }
+.finpill {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 3px 9px; border-radius: 999px; margin-left: auto;
+}
+.finpill.live { background: var(--tealsoft); color: var(--teal); border: 1px solid rgba(79,209,181,0.3); }
+.finpill.cached { background: var(--goldsoft); color: var(--gold); border: 1px solid var(--goldline); }
+
+/* ── active agents grid ─────────────────────────────────── */
+.agentsgrid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+}
+.agent {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  padding: 14px 16px;
+}
+.agent.alert { border-color: rgba(240, 118, 107, 0.45); box-shadow: 0 0 18px rgba(240, 118, 107, 0.07); }
+.agent .ahead { display: flex; align-items: center; gap: 8px; }
+.agent .aname { font-size: 13px; font-weight: 600; flex: 1; min-width: 0; }
+.agent .adesc { font-size: 11.5px; color: var(--ink2); line-height: 1.45; margin: 7px 0 9px; }
+.agent .ameta {
+  display: flex; justify-content: space-between; gap: 8px;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  color: var(--ink3); letter-spacing: 0.04em;
+  border-top: 1px solid var(--line); padding-top: 8px;
+}
+.agent .ameta b { color: var(--ink2); font-weight: 500; }
+.agent .anote { font-size: 10.5px; margin-top: 6px; color: var(--ink3); }
+.agent.alert .anote { color: var(--coral); }
 
 /* ── lock screen ────────────────────────────────────────── */
 .lockveil {
