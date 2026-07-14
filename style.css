@@ -126,9 +126,15 @@ body {
   text-align: center; font-size: 11.5px; color: var(--ink2); width: 116px;
 }
 .nlab strong { display: block; color: var(--ink); font-weight: 600; font-size: 12px; }
-/* keep the two post-$1M labels from colliding / clipping at the right edge */
-.track.tall .nlab:nth-last-child(2) { transform: translateX(-64%); width: 104px; }
-.track.tall .nlab:last-child { transform: translateX(-72%); width: 104px; }
+/* two post-$1M ventures share the same point on the line — stack the last one
+   below the other instead of colliding (they occupy the same milestone). */
+.track.tall .nlab:last-of-type {
+  top: 52px;
+}
+.track.tall .nlab:last-of-type::before {
+  content: ""; position: absolute; left: 50%; top: -16px;
+  width: 1px; height: 12px; background: var(--line2);
+}
 .hsub { margin-top: 56px; font-size: 13.5px; color: var(--ink2); }
 .hsub b { color: var(--ink); font-weight: 600; }
 
@@ -471,7 +477,7 @@ body {
 /* ── horizon: full-width minimal timeline (road to a million dollar agency) ── */
 .horizon.solo { margin-bottom: 18px; }
 .horizon.solo .hlabel { font-size: 12px; letter-spacing: 0.2em; }
-.track.tall { margin: 58px 30px 34px; }
+.track.tall { margin: 58px 30px 96px; }
 .hsub.ytd { margin-top: 10px; color: var(--gold); font-size: 12.5px; letter-spacing: 0.02em; }
 /* hide caption/ytd when the publisher sends them empty */
 .hsub:empty { display: none; margin: 0; }
