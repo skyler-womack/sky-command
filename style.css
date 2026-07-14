@@ -465,16 +465,19 @@ body {
 /* ── responsive ─────────────────────────────────────────── */
 /* (responsive rules live at the end of this file so they win the cascade) */
 
-/* ── goal top row: horizon + gates ──────────────────────── */
-.toprow {
-  display: grid; grid-template-columns: minmax(0, 1fr) 330px;
-  gap: 18px; margin-bottom: 18px; align-items: stretch;
-}
-.toprow .horizon { margin-bottom: 0; }
+/* ── horizon: full-width minimal timeline (road to a million dollar agency) ── */
+.horizon.solo { margin-bottom: 18px; }
+.horizon.solo .hlabel { font-size: 12px; letter-spacing: 0.2em; }
+.track.tall { margin: 58px 30px 34px; }
 .hsub.ytd { margin-top: 10px; color: var(--gold); font-size: 12.5px; letter-spacing: 0.02em; }
+/* hide caption/ytd when the publisher sends them empty */
+.hsub:empty { display: none; margin: 0; }
 
-/* ── main grid: inbox | focus | briefing (primaries flank a slim focus) ── */
-.grid { grid-template-columns: minmax(0, 1fr) minmax(240px, 0.72fr) minmax(0, 1fr); }
+/* ── full-span primary cards (briefing) ─────────────────── */
+.card.fullspan { margin-bottom: 18px; }
+.grid.two { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); }
+
+/* ── section heads ──────────────────────────────────────── */
 
 /* ── section heads ──────────────────────────────────────── */
 .secthead {
@@ -554,28 +557,110 @@ body {
 .finpill.live { background: var(--tealsoft); color: var(--teal); border: 1px solid rgba(79,209,181,0.3); }
 .finpill.cached { background: var(--goldsoft); color: var(--gold); border: 1px solid var(--goldline); }
 
-/* ── active agents grid ─────────────────────────────────── */
+/* ── briefing-matched finance cards (mirror the CEO daily briefing) ─────
+   Uses the briefing's OWN palette so the two views match every day. */
+.bfcard {
+  background: #0E1A24; border: 1px solid #263B49; border-radius: 16px;
+  padding: 18px 20px; margin-bottom: 16px;
+}
+.bfcard .bfhead { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.bfcard .bfic {
+  width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+  background: #1B2E3C; color: #34E0C8; font-size: 16px; flex: none;
+}
+.bfcard .bftitle {
+  font-size: 13px; font-weight: 800; letter-spacing: 0.08em;
+  color: #E7EEF4; text-transform: uppercase;
+}
+.bfcard .bfstamp {
+  margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  letter-spacing: 0.08em; color: #93A4B2;
+  border: 1px solid #263B49; border-radius: 20px; padding: 5px 12px;
+}
+.bftiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.bftile { border-radius: 16px; padding: 14px 14px 12px; min-height: 108px; }
+.bftile .bfrow { display: flex; align-items: flex-start; justify-content: space-between; }
+.bftile .bflabel { font-size: 11px; font-weight: 700; color: #93A4B2; }
+.bftile .bfchip {
+  width: 30px; height: 30px; line-height: 30px; text-align: center;
+  border-radius: 9px; font-size: 16px; color: #0A141D; flex: none;
+}
+.bftile .bfnum { font-size: 28px; font-weight: 800; margin-top: 8px; line-height: 1; }
+.bftile .bfnum small { font-size: 13px; color: #6E7F8D; font-weight: 700; }
+.bftile .bfsub { font-size: 10.5px; color: #6E7F8D; margin-top: 7px; line-height: 1.4; }
+/* tile color variants — exact briefing hexes */
+.bftile.red    { background: #2C1714; border: 1px solid #5A2A24; } .bftile.red .bfnum    { color: #FF6B5E; } .bftile.red .bfchip    { background: #FF6B5E; }
+.bftile.amber  { background: #2A2113; border: 1px solid #5A461E; } .bftile.amber .bfnum  { color: #FFB454; } .bftile.amber .bfchip  { background: #FFB454; }
+.bftile.green  { background: #0F2A1D; border: 1px solid #1F5638; } .bftile.green .bfnum  { color: #45D67F; } .bftile.green .bfchip  { background: #45D67F; }
+.bftile.blue   { background: #12243D; border: 1px solid #274873; } .bftile.blue .bfnum   { color: #5AA0FF; } .bftile.blue .bfchip   { background: #5AA0FF; }
+.bftile.slate  { background: #152632; border: 1px solid #263B49; } .bftile.slate .bfnum  { color: #F4F9FD; } .bftile.slate .bfchip  { background: #34E0C8; }
+.bftile.neg .bfnum { color: #FF6B5E; }
+.bfcard .bfnote { font-size: 10.5px; color: #6E7F8D; margin-top: 12px; letter-spacing: 0.02em; }
+
+/* ── active agents: mechanical telemetry console ─────────── */
+.telemetry {
+  margin-top: 26px;
+  background:
+    linear-gradient(180deg, #0c1220, #0a0e18),
+    repeating-linear-gradient(0deg, transparent 0 3px, rgba(79,209,181,0.02) 3px 4px);
+  border: 1px solid var(--line2); border-radius: 16px;
+  padding: 0; overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+}
+.telehead {
+  display: flex; align-items: center; gap: 14px;
+  padding: 12px 18px; border-bottom: 1px solid var(--line2);
+  background: linear-gradient(90deg, rgba(79,209,181,0.06), transparent 60%);
+  font-family: 'JetBrains Mono', monospace;
+}
+.teletitle { font-size: 12px; font-weight: 600; letter-spacing: 0.22em; color: var(--teal); }
+.teleclock { font-size: 11px; color: var(--ink3); letter-spacing: 0.1em; }
+.telestat {
+  margin-left: auto; display: flex; align-items: center; gap: 7px;
+  font-size: 10.5px; letter-spacing: 0.1em; color: var(--ink2);
+}
 .agentsgrid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 12px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  gap: 1px; background: var(--line); /* hairline separators between bays */
 }
 .agent {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
-  padding: 14px 16px;
+  background: #0b101c; padding: 14px 16px 13px;
+  position: relative; overflow: hidden;
+  font-family: 'JetBrains Mono', monospace;
 }
-.agent.alert { border-color: rgba(240, 118, 107, 0.45); box-shadow: 0 0 18px rgba(240, 118, 107, 0.07); }
+.agent::before { /* left status rail */
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--teal); box-shadow: 0 0 10px var(--teal);
+}
+.agent.alert::before { background: var(--coral); box-shadow: 0 0 10px var(--coral); animation: railblink 1.1s steps(1) infinite; }
+@keyframes railblink { 50% { opacity: 0.3; } }
 .agent .ahead { display: flex; align-items: center; gap: 8px; }
-.agent .aname { font-size: 13px; font-weight: 600; flex: 1; min-width: 0; }
-.agent .adesc { font-size: 11.5px; color: var(--ink2); line-height: 1.45; margin: 7px 0 9px; }
-.agent .ameta {
-  display: flex; justify-content: space-between; gap: 8px;
-  font-family: 'JetBrains Mono', monospace; font-size: 10px;
-  color: var(--ink3); letter-spacing: 0.04em;
-  border-top: 1px solid var(--line); padding-top: 8px;
+.agent .aname {
+  font-family: 'Inter', sans-serif; font-size: 12.5px; font-weight: 700;
+  flex: 1; min-width: 0; letter-spacing: 0.01em;
 }
-.agent .ameta b { color: var(--ink2); font-weight: 500; }
-.agent .anote { font-size: 10.5px; margin-top: 6px; color: var(--ink3); }
+.agent .aled {
+  font-size: 8.5px; letter-spacing: 0.12em; padding: 2px 7px; border-radius: 4px;
+  border: 1px solid var(--line2); color: var(--teal); background: rgba(79,209,181,0.08);
+}
+.agent.alert .aled { color: var(--coral); border-color: rgba(240,118,107,0.4); background: rgba(240,118,107,0.08); }
+.agent .adesc {
+  font-family: 'Inter', sans-serif; font-size: 11px; color: var(--ink2);
+  line-height: 1.45; margin: 8px 0 10px; min-height: 32px;
+}
+.agent .ameta {
+  display: flex; justify-content: space-between; gap: 8px; font-size: 9.5px;
+  color: var(--ink3); letter-spacing: 0.05em; border-top: 1px dashed var(--line2); padding-top: 8px;
+}
+.agent .ameta b { color: var(--teal); font-weight: 400; }
+.agent .anote {
+  font-family: 'Inter', sans-serif; font-size: 10.5px; margin-top: 7px;
+  color: var(--ink3); display: flex; align-items: center; gap: 6px;
+}
 .agent.alert .anote { color: var(--coral); }
+.agent .barcode { display: flex; gap: 2px; margin-top: 9px; height: 8px; opacity: 0.5; }
+.agent .barcode i { flex: 1; background: var(--teal); border-radius: 1px; }
+.agent.alert .barcode i { background: var(--coral); }
 
 /* ── lock screen ────────────────────────────────────────── */
 .lockveil {
@@ -641,12 +726,15 @@ body {
   .topmeta { margin-left: 0; text-align: left; width: 100%; }
 
   /* stack every multi-column region */
-  .grid, .band, .finrow, .pulsegrid { grid-template-columns: 1fr; }
+  .grid, .grid.two, .band, .finrow, .pulsegrid { grid-template-columns: 1fr; }
+  .bftiles { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .bftile { min-height: 96px; }
+  .bftile .bfnum { font-size: 23px; }
   .colB { grid-column: auto; grid-row: auto; }
 
   /* horizon: pin the "you're here" label, shrink milestone labels */
   .horizon { padding: 16px 14px 24px; }
-  .track { margin: 38px 22px 8px 6px; }
+  .track, .track.tall { margin: 40px 20px 30px 8px; }
   .youlab { left: 0 !important; transform: none; text-align: left; top: -32px; }
   .nlab { width: 84px; font-size: 9.5px; }
   .nlab strong { font-size: 10.5px; }

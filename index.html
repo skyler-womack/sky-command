@@ -34,7 +34,7 @@
       <div class="core">
         <canvas id="orb-main" class="orbcanvas" aria-label="Chloe neural core"></canvas>
         <div class="corename">Chloe <em id="core-status">· online</em></div>
-        <div class="corerole">AI Executive Assistant — Command Interface</div>
+        <div class="corerole">AI Executive Assistant to Skyler Womack</div>
       </div>
       <div class="conv">
         <div class="modetabs" role="tablist">
@@ -51,64 +51,44 @@
       </div>
     </section>
 
-    <!-- goal layer: horizon + venture gates -->
-    <div class="toprow">
-      <section class="horizon" aria-label="Goal trajectory">
-        <div class="glow"></div>
-        <div class="hlabel"><span class="spark">◈</span><span id="hz-label"></span></div>
-        <div class="track" id="hz-track"></div>
-        <div class="hsub" id="hz-caption"></div>
-        <div class="hsub ytd" id="hz-ytd"></div>
-      </section>
-
-      <section class="card" aria-label="Venture gates">
-        <div class="chead">
-          <div class="ic" style="background:var(--coralsoft)">🔒</div>
-          <span class="ctitle">Venture gates</span>
-          <span class="cstatus" style="color:var(--ink3)">PARKING LOT</span>
-        </div>
-        <div id="gates"></div>
-      </section>
-    </div>
-
-    <!-- primary cards: inbox | focus | briefing -->
-    <div class="grid">
-      <div class="col colA">
-        <section class="card primary" id="card-inbox" aria-label="Sky Inbox Manager"></section>
-      </div>
-
-      <div class="col colB">
-        <section class="card" aria-label="Focus this week">
-          <div class="chead">
-            <div class="ic" style="background:var(--goldsoft)">🎯</div>
-            <span class="ctitle">Focus this week</span>
-          </div>
-          <ul class="focus" id="focus-list"></ul>
-        </section>
-      </div>
-
-      <div class="col colC">
-        <section class="card primary" id="card-briefing" aria-label="CEO Daily Briefing"></section>
-      </div>
-    </div>
-
-    <!-- financial pulse -->
-    <section aria-label="Financial pulse">
-      <div class="secthead">
-        <span class="ctitle">Financial pulse — live from Lovable</span>
-        <span class="cstatus" id="fin-status"></span>
-      </div>
-      <div class="finrow">
-        <div class="card" id="card-crm"></div>
-        <div class="card" id="card-billing"></div>
-      </div>
+    <!-- goal layer: road to a million dollar agency (full width, minimal) -->
+    <section class="horizon solo" aria-label="Goal trajectory">
+      <div class="glow"></div>
+      <div class="hlabel"><span class="spark">◈</span><span id="hz-label"></span></div>
+      <div class="track tall" id="hz-track"></div>
     </section>
 
-    <!-- active agents -->
-    <section aria-label="Active agents">
+    <!-- CEO daily briefing (full width) -->
+    <section class="card primary fullspan" id="card-briefing" aria-label="CEO Daily Briefing"></section>
+
+    <!-- financial pulse — briefing-matched cards, full width -->
+    <section aria-label="Financial pulse">
       <div class="secthead">
-        <span class="ctitle">Active agents</span>
-        <span class="cstatus" id="agents-status"></span>
+        <span class="ctitle">Financial pulse — mirrors your CEO briefing</span>
+        <span class="cstatus" id="fin-status"></span>
+      </div>
+      <div class="card bfcard" id="card-crm"></div>
+      <div class="card bfcard" id="card-billing"></div>
+    </section>
+
+    <!-- inbox manager + focus (moved down) -->
+    <div class="grid two">
+      <section class="card primary" id="card-inbox" aria-label="Sky Inbox Manager"></section>
+      <section class="card" aria-label="Focus this week">
+        <div class="chead">
+          <div class="ic" style="background:var(--goldsoft)">🎯</div>
+          <span class="ctitle">Focus this week</span>
+        </div>
+        <ul class="focus" id="focus-list"></ul>
+      </section>
+    </div>
+
+    <!-- active agents — telemetry console -->
+    <section class="telemetry" aria-label="Active agents">
+      <div class="telehead">
+        <span class="teletitle">◈ AGENT TELEMETRY</span>
+        <span class="teleclock" id="tele-clock"></span>
+        <span class="telestat" id="agents-status"></span>
       </div>
       <div class="agentsgrid" id="agentsgrid"></div>
     </section>

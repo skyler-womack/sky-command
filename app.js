@@ -242,8 +242,8 @@ class PlexusOrb {
 
     // ambient halo
     const g = c.createRadialGradient(half, half, s * 0.1, half, half, half);
-    g.addColorStop(0, `rgba(80,150,255,${0.16 + busy * 0.10})`);
-    g.addColorStop(1, "rgba(80,150,255,0)");
+    g.addColorStop(0, `rgba(233,180,76,${0.18 + busy * 0.12})`);
+    g.addColorStop(1, "rgba(233,180,76,0)");
     c.fillStyle = g;
     c.fillRect(0, 0, s, s);
 
@@ -257,8 +257,8 @@ class PlexusOrb {
       const flare = Math.max(this.pts[a].flare, this.pts[b].flare);
       const alpha = 0.05 + depth * 0.16 + flare * 0.4;
       c.strokeStyle = flare > 0.25
-        ? `rgba(190,230,255,${alpha})`
-        : `rgba(96,168,255,${alpha})`;
+        ? `rgba(255,238,190,${alpha})`
+        : `rgba(224,176,72,${alpha})`;
       c.lineWidth = 0.5 + depth * 0.5 + flare * 0.8;
       c.beginPath(); c.moveTo(pa.sx, pa.sy); c.lineTo(pb.sx, pb.sy); c.stroke();
     }
@@ -269,9 +269,9 @@ class PlexusOrb {
       const rad = (0.6 + p.depth * 1.1) * p.persp * 0.9 * (1 + n.flare * 1.5);
       const alpha = 0.25 + p.depth * 0.55 + n.flare * 0.45;
       c.fillStyle = n.violet
-        ? `rgba(168,150,255,${alpha})`
-        : (n.flare > 0.3 ? `rgba(220,240,255,${alpha})`
-                         : `rgba(126,196,255,${alpha})`);
+        ? `rgba(255,214,120,${alpha})`
+        : (n.flare > 0.3 ? `rgba(255,247,220,${alpha})`
+                         : `rgba(240,196,96,${alpha})`);
       c.beginPath(); c.arc(p.sx, p.sy, rad, 0, 6.2832); c.fill();
     }
     c.globalCompositeOperation = "source-over";
@@ -314,8 +314,6 @@ function syncChip() {
 function renderHorizon() {
   const h = S.goals.horizon;
   el("hz-label").textContent = h.label;
-  el("hz-caption").innerHTML = h.caption;
-  el("hz-ytd").textContent = h.ytdLine || "";
 
   const track = el("hz-track");
   track.innerHTML =
@@ -334,22 +332,6 @@ function renderHorizon() {
       el("hz-you").style.left = h.currentPct + "%";
       el("hz-youlab").style.left = h.currentPct + "%";
     }, 150));
-}
-
-function renderGates() {
-  el("gates").innerHTML = S.goals.gates.map((g) => {
-    const near = g.state === "near";
-    return `
-      <div class="gate ${near ? "near" : ""}">
-        <div class="glock ${near ? "near" : ""}">${near ? "🔓" : "🔒"}</div>
-        <div style="flex:1;min-width:0">
-          <div class="gname">${esc(g.name)}</div>
-          <div class="gcond">${esc(g.cond)}</div>
-          ${near ? `<div class="gmini"><div style="width:${g.pct}%"></div></div>` : ""}
-        </div>
-        <span class="gpill ${near ? "near" : ""}">${near ? g.pct + "% there" : "Locked"}</span>
-      </div>`;
-  }).join("");
 }
 
 // ── primary cards ───────────────────────────────────────
@@ -437,68 +419,96 @@ function finRow(k, v, opts = {}) {
     <span class="rv" style="color:${color}">${shown}</span></div>`;
 }
 
+// Money for briefing tiles: negatives shown as ($X) in the tile's own red.
+const bfMoney = (n) => (typeof n === "number"
+  ? (n < 0 ? "(" + "$" + Math.abs(n).toLocaleString() + ")" : "$" + n.toLocaleString())
+  : "—");
+const stamp = (live, asOf) => live ? "● LIVE" : "◌ CACHED " + (asOf || "");
+
+// One briefing-style KPI tile.
+function bfTile(cls, label, chip, num, sub) {
+  return `<div class="bftile ${cls}">
+    <div class="bfrow"><span class="bflabel">${esc(label)}</span>
+      <span class="bfchip">${chip}</span></div>
+    <div class="bfnum">${num}</div>
+    <div class="bfsub">${sub ? esc(sub) : ""}</div>
+  </div>`;
+}
+
 function renderFinance() {
-  const f = S.finance;
+  const f = S.finance, c = f.crm, b = f.billing;
   el("fin-status").innerHTML =
-    `<span class="dot ${f.billing.live && f.crm.live ? "ok" : "gold"}"></span>` +
-    (f.billing.live && f.crm.live ? "BOTH APIS LIVE" : "PARTIAL — CACHED DATA IN USE");
+    `<span class="dot ${b.live && c.live ? "ok" : "gold"}"></span>` +
+    (b.live && c.live ? "BOTH APIS LIVE" : "PARTIAL — CACHED DATA IN USE");
 
+  // ── CRM card: 4 tiles, exactly like the briefing ──
   el("card-crm").innerHTML = `
-    <div class="finhead">
-      <div class="chead" style="margin-bottom:0">
-        <div class="ic" style="background:var(--tealsoft)">🎯</div>
-        <span class="ctitle">Active CRM Leads</span>
-      </div>
-      <span class="finpill ${f.crm.live ? "live" : "cached"}">${f.crm.live ? "LIVE" : "CACHED " + esc(f.crm.asOf || "")}</span>
+    <div class="bfhead">
+      <div class="bfic">🎯</div>
+      <span class="bftitle">Active CRM Leads</span>
+      <span class="bfstamp">${stamp(c.live, c.asOf)}</span>
     </div>
-    <div class="stat3" style="margin-top:14px">
-      <div class="s"><div class="v" style="color:var(--gold)">${f.crm.hot ?? "—"}</div><div class="k">hot 🔥</div></div>
-      <div class="s"><div class="v">${f.crm.warm ?? "—"}</div><div class="k">warm 🌡️</div></div>
-      <div class="s"><div class="v" style="color:var(--teal)">${money(f.crm.potential)}</div><div class="k">potential /mo</div></div>
+    <div class="bftiles">
+      ${bfTile("red", "HOT Leads", "🔥", c.hot ?? "—", "")}
+      ${bfTile("amber", "Warm Leads", "🌡️", c.warm ?? "—", "")}
+      ${bfTile("green", "Potential Revenue", "💲",
+        `${money(c.potential)}<small>/mo</small>`, `${(c.hot||0)+(c.warm||0)} hot+warm leads`)}
+      ${bfTile("blue", "Revenue (2026)", "📈",
+        `${money(c.recurring)}<small>/mo</small>`,
+        `${c.recurringClients ?? "—"} recurring · ${money(c.oneTime)} one-time YTD · ${c.oneTimeClients ?? "—"} projects`)}
     </div>
-    ${finRow("Recurring revenue (2026)", f.crm.recurring, { color: "var(--teal)" })}
-    ${finRow("Recurring clients", f.crm.recurringClients, { count: true })}
-    ${finRow("One-time YTD", f.crm.oneTime)}
-    ${finRow("One-time projects", f.crm.oneTimeClients, { count: true })}
-    <div class="tag" style="margin-top:8px">Sales Pipeline board · Sky Collective Portal</div>`;
+    <div class="bfnote">📸 Sales Pipeline board · Sky Collective Portal</div>`;
 
-  const b = f.billing;
-  const netColor = typeof b.net === "number" && b.net < 0 ? "var(--coral)" : "var(--teal)";
+  // ── Billing Buddy card: monthly pulse tiles, matching the briefing ──
+  const netCls = typeof b.net === "number" && b.net < 0 ? "slate neg" : "slate";
   el("card-billing").innerHTML = `
-    <div class="finhead">
-      <div class="chead" style="margin-bottom:0">
-        <div class="ic" style="background:var(--goldsoft)">💵</div>
-        <span class="ctitle">Billing Buddy — ${esc(b.month || "this month")}</span>
-      </div>
-      <span class="finpill ${b.live ? "live" : "cached"}">${b.live ? "LIVE" : "CACHED " + esc(b.asOf || "")}</span>
+    <div class="bfhead">
+      <div class="bfic" style="background:#2A2113;color:#FFB454">💵</div>
+      <span class="bftitle">Billing Buddy — ${esc(b.month || "this month")}</span>
+      <span class="bfstamp">${stamp(b.live, b.asOf)}</span>
     </div>
-    <div class="finbig">
-      <span class="v" style="color:${netColor}">${money(b.net)}</span>
-      <span class="lab">net profit · ${esc((b.status || "").replace("_", " "))}</span>
+    <div class="bftiles">
+      ${bfTile("slate", "Total Revenue", "🚀", bfMoney(b.revenue), "Retainers + A-La-Carte + Projects")}
+      ${bfTile("slate", "PM Base Pay*", "👛", bfMoney(b.pmBasePay), "Monthly assignments")}
+      ${bfTile("slate", "Proposed A-La-Carte", "✨", bfMoney(b.alaCarte),
+        `PM ${bfMoney(b.alaCartePm)} · Creative ${bfMoney(b.alaCarteCreative)}`)}
+      ${bfTile("slate", "Project Payouts*", "📁", bfMoney(b.projectPayouts), "Creatives on projects")}
     </div>
-    ${finRow("Total revenue", b.revenue, { color: "var(--ink)" })}
-    ${finRow("· Retainers", b.retainer)}
-    ${finRow("· Projects", b.project)}
-    ${finRow("PM base pay", b.pmBasePay, { neg: true })}
-    ${finRow("Project payouts", b.projectPayouts, { neg: true })}
-    ${finRow("Total payouts", b.totalPayouts, { neg: true })}
-    ${finRow("Monthly overhead", b.overhead, { neg: true })}
-    <div class="tag" style="margin-top:8px">financial_pulse · excludes owner</div>`;
+    <div class="bftiles" style="margin-top:10px">
+      ${bfTile("slate neg", "Total Payouts*", "🧾", bfMoney(-Math.abs(b.totalPayouts || 0)), "PM + Creative + Projects")}
+      ${bfTile("slate neg", "Monthly Overhead", "🏢", bfMoney(-Math.abs(b.overhead || 0)), "Standard fixed expense")}
+      ${bfTile(netCls, "Net Profit", "⚡", bfMoney(b.net),
+        `${esc((b.status || "").replace("_", " "))} · Revenue − Payouts − Overhead`)}
+      ${bfTile("slate", "Active Clients", "👥", (c.recurringClients ?? 0) + (c.oneTimeClients ?? 0) + "", "recurring + one-time")}
+    </div>
+    <div class="bfnote">* EXCLUDES OWNER · 📸 financial_pulse · Billing Buddy</div>`;
+}
+
+// deterministic barcode pattern so tiles look "instrumented" but stable
+function barcode(seed) {
+  let bits = "";
+  for (let i = 0; i < 22; i++) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    bits += `<i style="opacity:${(seed % 100) < 45 ? 0.85 : 0.2}"></i>`;
+  }
+  return `<div class="barcode">${bits}</div>`;
 }
 
 function renderAgents() {
   const alerts = S.agents.filter((a) => a.status === "alert").length;
   el("agents-status").innerHTML = alerts
-    ? `<span class="dot warn"></span>${alerts} NEED${alerts === 1 ? "S" : ""} ATTENTION`
-    : `<span class="dot ok"></span>ALL GREEN`;
-  el("agentsgrid").innerHTML = S.agents.map((a) => `
+    ? `<span class="dot warn"></span>${alerts} FLAG${alerts === 1 ? "" : "S"}`
+    : `<span class="dot ok"></span>ALL NOMINAL`;
+  el("agentsgrid").innerHTML = S.agents.map((a, i) => `
     <div class="agent ${a.status === "alert" ? "alert" : ""}">
       <div class="ahead">
         <span class="dot ${a.status === "alert" ? "warn" : "ok"}"></span>
         <span class="aname">${esc(a.name)}</span>
+        <span class="aled">${a.status === "alert" ? "CHECK" : "LIVE"}</span>
       </div>
       <div class="adesc">${esc(a.desc)}</div>
-      <div class="ameta"><span>${esc(a.schedule)}</span><b>next ${esc(a.nextRun)}</b></div>
+      ${barcode(i * 97 + 13)}
+      <div class="ameta"><span>${esc(a.schedule)}</span><b>NEXT ${esc(a.nextRun.toUpperCase())}</b></div>
       <div class="anote">${esc(a.note)}</div>
     </div>`).join("");
 }
@@ -763,13 +773,19 @@ function initSysline() {
     el("sysline-text").textContent = lines[sysIdx];
   }, 10000);
   setInterval(syncChip, 30000);
+  // live telemetry clock in the agents console header
+  const tick = () => {
+    const c = el("tele-clock");
+    if (c) c.textContent = new Date().toLocaleTimeString("en-US", { hour12: false }) + " CT";
+  };
+  tick();
+  setInterval(tick, 1000);
 }
 
 // ── boot ────────────────────────────────────────────────
 function renderAll() {
   renderHeader();
   renderHorizon();
-  renderGates();
   renderInbox();
   renderBriefing();
   renderFocus();
