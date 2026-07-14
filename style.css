@@ -123,18 +123,16 @@ body {
 .node.passed { border-color: var(--gold); }
 .nlab {
   position: absolute; top: 16px; transform: translateX(-50%);
-  text-align: center; font-size: 11.5px; color: var(--ink2); width: 116px;
+  text-align: center; font-size: 11px; color: var(--ink2); width: 108px;
 }
-.nlab strong { display: block; color: var(--ink); font-weight: 600; font-size: 12px; }
-/* two post-$1M ventures share the same point on the line — stack the last one
-   below the other instead of colliding (they occupy the same milestone). */
-.track.tall .nlab:last-of-type {
-  top: 52px;
-}
-.track.tall .nlab:last-of-type::before {
-  content: ""; position: absolute; left: 50%; top: -16px;
-  width: 1px; height: 12px; background: var(--line2);
-}
+.nlab strong { display: block; color: var(--ink); font-weight: 600; font-size: 11.5px; }
+/* progressive narrowing + vertical stagger for right-side labels to prevent collisions */
+.track.tall .nlab:nth-child(n+11) { width: 100px; font-size: 10.5px; }
+.track.tall .nlab:nth-child(n+11) strong { font-size: 11px; }
+.track.tall .nlab:nth-child(13) { width: 92px; font-size: 10px; top: 32px; }
+.track.tall .nlab:nth-child(13) strong { font-size: 10.5px; }
+.track.tall .nlab:nth-child(15) { width: 88px; font-size: 10px; top: 48px; }
+.track.tall .nlab:nth-child(15) strong { font-size: 10.5px; }
 .hsub { margin-top: 56px; font-size: 13.5px; color: var(--ink2); }
 .hsub b { color: var(--ink); font-weight: 600; }
 
