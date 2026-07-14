@@ -123,9 +123,12 @@ body {
 .node.passed { border-color: var(--gold); }
 .nlab {
   position: absolute; top: 16px; transform: translateX(-50%);
-  text-align: center; font-size: 11.5px; color: var(--ink2); width: 132px;
+  text-align: center; font-size: 11.5px; color: var(--ink2); width: 116px;
 }
 .nlab strong { display: block; color: var(--ink); font-weight: 600; font-size: 12px; }
+/* keep the two post-$1M labels from colliding / clipping at the right edge */
+.track.tall .nlab:nth-last-child(2) { transform: translateX(-64%); width: 104px; }
+.track.tall .nlab:last-child { transform: translateX(-72%); width: 104px; }
 .hsub { margin-top: 56px; font-size: 13.5px; color: var(--ink2); }
 .hsub b { color: var(--ink); font-weight: 600; }
 
