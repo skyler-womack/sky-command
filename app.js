@@ -552,8 +552,12 @@ const thread = () => el("thread");
 function addMsg(who, text, cls) {
   const div = document.createElement("div");
   div.className = "msg " + who + (cls ? " " + cls : "");
+  const stamp = new Date().toLocaleTimeString("en-US", {
+    hour: "numeric", minute: "2-digit",
+  });
   div.innerHTML =
-    `<div class="who">${who === "chloe" ? "Chloe" : "Sky"}</div>${esc(text)}`;
+    `<div class="who">${who === "chloe" ? "Chloe" : "Sky"}` +
+    `<span class="ts">${stamp}</span></div>${esc(text)}`;
   thread().appendChild(div);
   thread().scrollTop = thread().scrollHeight;
   return div;

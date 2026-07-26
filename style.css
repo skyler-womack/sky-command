@@ -102,7 +102,10 @@ body {
   transition: width 1.3s cubic-bezier(.2, .7, .2, 1);
   width: 0;
 }
-.you {
+/* Scoped to .track — a bare `.you` also matched chat messages (.msg.you),
+   rendering Skyler's own replies as 9px absolutely-positioned gold dots
+   instead of message bubbles. */
+.track .you {
   position: absolute; top: -3px; width: 9px; height: 9px; border-radius: 50%;
   background: var(--gold); transform: translateX(-50%);
   box-shadow: 0 0 0 4px rgba(233, 180, 76, 0.22);
@@ -241,7 +244,9 @@ body {
 /* full-width hero: big neural core on the left, chat on the right */
 .console.hero {
   display: grid; grid-template-columns: 380px minmax(0, 1fr);
-  min-height: 460px; margin-bottom: 18px;
+  /* FIXED height, not min-height: the thread must scroll inside this box
+     instead of growing and pushing the rest of the dashboard down. */
+  height: 560px; min-height: 0; margin-bottom: 18px;
 }
 .console.hero .halo {
   background: radial-gradient(46% 80% at 22% 40%, rgba(80, 150, 255, 0.12), transparent 70%);
@@ -256,8 +261,9 @@ body {
 .console.hero .corerole { font-size: 10.5px; margin-top: 6px; }
 .console.hero .conv {
   display: flex; flex-direction: column; min-width: 0; position: relative; z-index: 1;
+  min-height: 0; /* lets the thread shrink below its content so it can scroll */
 }
-.console.hero .thread { flex: 1; }
+.console.hero .thread { flex: 1; min-height: 0; }
 @media (max-width: 900px) {
   .console.hero { grid-template-columns: 1fr; }
   .console.hero .core { border-right: none; border-bottom: 1px solid var(--line); padding: 22px; }
@@ -298,10 +304,19 @@ body {
 }
 
 .thread {
-  flex: 1; overflow-y: auto; padding: 18px 20px 6px;
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: 18px 20px 6px;
   display: flex; flex-direction: column; gap: 12px;
   position: relative;
+  scrollbar-width: thin; scrollbar-color: var(--line2) transparent;
 }
+.thread::-webkit-scrollbar { width: 8px; }
+.thread::-webkit-scrollbar-track { background: transparent; }
+.thread::-webkit-scrollbar-thumb {
+  background: var(--line2); border-radius: 999px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+.thread::-webkit-scrollbar-thumb:hover { background: var(--ink3); background-clip: content-box; }
 .msg { max-width: 82%; font-size: 13.5px; line-height: 1.55; border-radius: 14px; padding: 10px 14px; }
 .msg.chloe {
   align-self: flex-start;
@@ -317,7 +332,10 @@ body {
   font-family: 'JetBrains Mono', monospace; font-size: 9.5px;
   letter-spacing: 0.16em; text-transform: uppercase;
   color: var(--ink3); margin-bottom: 4px;
+  display: flex; align-items: baseline; gap: 8px;
 }
+.msg .who .ts { letter-spacing: 0.06em; color: var(--ink3); opacity: 0.65; }
+.msg.you .who { justify-content: flex-end; } /* stamp trails your own messages */
 .msg.chloe .who { color: var(--gold); }
 .msg.you .who { color: var(--teal); }
 .typing { display: inline-flex; gap: 4px; padding: 4px 2px; }
@@ -750,7 +768,11 @@ body {
 
   /* console: taller thread, full-width tabs, no iOS zoom on input */
   .console { min-height: 70vh; }
-  .console.hero { min-height: 0; }
+  /* Phone: single column, so a fixed desktop height would squash the orb.
+     Let the card size to content and cap the THREAD instead — same result
+     (chat scrolls internally, never grows the page). */
+  .console.hero { height: auto; min-height: 0; }
+  .console.hero .thread { max-height: 46vh; }
   .core { padding: 20px 16px 6px; }
   .orbcanvas { width: 150px; height: 150px; }
   .console.hero .orbcanvas { width: 168px; height: 168px; }
