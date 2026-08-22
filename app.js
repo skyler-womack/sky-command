@@ -337,7 +337,8 @@ function renderHorizon() {
 // ── primary cards ───────────────────────────────────────
 function renderInbox() {
   const a = S.inboxManager;
-  const pct = Math.min(100, Math.round((a.batch.processed / a.batch.target) * 100));
+  const drafts = (a.recentDrafts || []).slice(0, 5);
+
   el("card-inbox").innerHTML = `
     <div class="chead">
       <div class="ic" style="background:var(--tealsoft)">📥</div>
@@ -345,57 +346,165 @@ function renderInbox() {
       <span class="cstatus"><span class="dot ok"></span>ACTIVE</span>
     </div>
     <div class="stat3">
-      <div class="s"><div class="v">${a.last24h.scanned}</div><div class="k">scanned</div></div>
-      <div class="s"><div class="v" style="color:var(--teal)">${a.last24h.drafts}</div><div class="k">drafts</div></div>
+      <div class="s"><div class="v">${a.last24h.scanned}</div><div class="k">scanned 24h</div></div>
+      <div class="s"><div class="v" style="color:var(--teal)">${a.last24h.drafts}</div><div class="k">drafts ready</div></div>
       <div class="s"><div class="v" style="color:${a.last24h.urgent ? "var(--coral)" : "var(--ink3)"}">${a.last24h.urgent}</div><div class="k">urgent</div></div>
     </div>
     <div class="smallnote">${esc(a.summary)} <span style="color:var(--ink3)">· ${esc(a.lastRun)}</span></div>
-    <div class="drafts">
-      ${a.recentDrafts.map((d) => `
-        <div class="drow"><span class="c">${esc(d.client)}</span><span class="n">${esc(d.note)}</span></div>
-      `).join("")}
-    </div>
-    <div class="batch">
-      <div class="lbl"><span>${esc(a.batch.label)}</span><b>${a.batch.processed.toLocaleString()} · ${pct}%</b></div>
-      <div class="bar"><div class="f" data-w="${pct}%"></div></div>
-      <div class="lbl" style="margin-top:5px"><span>${esc(a.batch.phase)}</span></div>
-    </div>`;
+    ${drafts.length ? `
+      <div class="draftshead">
+        <span>✍️ Waiting for your review</span>
+        <span class="dcount">top ${drafts.length} of ${a.last24h.drafts}</span>
+      </div>
+      <div class="draftlist">
+        ${drafts.map((d) => `
+          <div class="dcard">
+            <div class="dtop">
+              <span class="dclient">${esc(d.client)}</span>
+              <span class="dstatus">${esc(d.status || "drafted")}</span>
+            </div>
+            ${d.subject ? `<div class="dsubj">${esc(d.subject)}</div>` : ""}
+            <div class="dnote">${esc(d.note)}</div>
+            ${d.when ? `<div class="dwhen">${esc(d.when)}</div>` : ""}
+          </div>`).join("")}
+      </div>` : `
+      <div class="smallnote" style="color:var(--ink3)">
+        No client-facing drafts staged right now.</div>`}`;
 }
 
+// ── background maintenance: its own quiet card, not a CEO action item ──
+function renderCleanup() {
+  const b = (S.inboxManager || {}).batch || {};
+  const filed = b.filed ?? b.processed ?? 0;
+  const remaining = typeof b.remaining === "number" ? b.remaining : null;
+  const cutoff = b.cutoff
+    ? new Date(b.cutoff + "T00:00:00").toLocaleDateString("en-US",
+        { month: "long", day: "numeric" })
+    : null;
+
+  // Only draw a bar when both sides of the ratio are actually measured —
+  // otherwise show counts and say the remaining figure is unknown.
+  let bar = "";
+  if (remaining !== null && filed > 0) {
+    const pct = Math.max(2, Math.min(100, Math.round((filed / (filed + remaining)) * 100)));
+    bar = `
+      <div class="bgbar"><div class="bgfill" data-w="${pct}%"></div></div>
+      <div class="bgrow">
+        <span>${filed.toLocaleString()} filed</span>
+        <span class="bgtarget">~${remaining.toLocaleString()} left${
+          cutoff ? ` before ${esc(cutoff)}` : ""}</span>
+      </div>
+      <div class="bgapprox">${pct}% complete · remaining count is Gmail’s estimate</div>`;
+  } else {
+    bar = `
+      <div class="bgrow">
+        <span>${filed.toLocaleString()} filed</span>
+        <span class="bgtarget">remaining unknown</span>
+      </div>
+      <div class="bgapprox">No reliable remaining count this cycle — no progress inferred.</div>`;
+  }
+
+  el("card-cleanup").innerHTML = `
+    <div class="bghead">
+      <span class="bgdot"></span>
+      <span class="bgtitle">Inbox Batch Cleanup</span>
+      <span class="bgruns">${b.runs ? esc(b.runs + " runs") : ""}</span>
+    </div>
+    <div class="bgsub">${cutoff
+      ? `Cleaning inbox history through ${esc(cutoff)}`
+      : "Filing historical email in batches"}</div>
+    ${bar}`;
+}
+
+// ── privacy: one reusable switch for every sensitive figure ──────────
+// Any element tagged .sens is obscured when privacy is on. CSS-only, so the
+// toggle is instant with no re-render, and layout never shifts.
+const PRIV_KEY = "skycmd_privacy_v1";
+let privacyOn = false;
+
+function applyPrivacy(on, persist = true) {
+  privacyOn = !!on;
+  document.body.classList.toggle("privacy-on", privacyOn);
+  const btn = el("priv-toggle");
+  if (btn) {
+    btn.setAttribute("aria-pressed", String(privacyOn));
+    el("priv-ico").textContent = privacyOn ? "🔒" : "👁";
+    el("priv-label").textContent = privacyOn ? "HIDDEN" : "FINANCIALS";
+    btn.title = privacyOn
+      ? "Financial figures hidden — click to reveal (P)"
+      : "Hide financial figures (P)";
+  }
+  if (persist) {
+    try { localStorage.setItem(PRIV_KEY, privacyOn ? "1" : "0"); } catch { /* private mode */ }
+  }
+}
+
+function initPrivacy() {
+  let saved = false;
+  try { saved = localStorage.getItem(PRIV_KEY) === "1"; } catch { /* ignore */ }
+  applyPrivacy(saved, false);           // restore last state, don't re-persist
+  el("priv-toggle").onclick = () => applyPrivacy(!privacyOn);
+  document.addEventListener("keydown", (e) => {
+    const typing = /^(INPUT|TEXTAREA)$/.test((e.target || {}).tagName || "");
+    if (!typing && !e.metaKey && !e.ctrlKey && e.key.toLowerCase() === "p") {
+      e.preventDefault();
+      applyPrivacy(!privacyOn);
+    }
+  });
+}
+
+/** Wrap a value so the privacy switch can obscure it. */
+function sens(v) {
+  return `<span class="sens">${esc(v)}</span>`;
+}
+
+// ── CEO Daily Briefing — reads like an email waiting from Chloe ───────
+// Financial indicators deliberately omitted: Financial Pulse sits directly
+// below and already carries them. The full briefing stays closed until asked.
 function renderBriefing() {
   const b = S.briefing;
   const hasHtml = !!(b.html && b.html.length > 500);
+  const stale = b.feeds.filter((f) => !f.fresh).length;
+  const today = new Date().toLocaleDateString("en-US",
+    { weekday: "long", month: "long", day: "numeric" });
+
   el("card-briefing").innerHTML = `
     <div class="chead">
-      <div class="ic" style="background:var(--goldsoft)">📊</div>
+      <div class="ic" style="background:var(--goldsoft)">📬</div>
       <span class="ctitle">${esc(b.name)}</span>
       <span class="cstatus"><span class="dot ok"></span>SENT ${esc(b.sentAt.toUpperCase())}</span>
     </div>
-    <div class="quote">“${esc(b.quote)}”</div>
-    <div class="hl">
-      ${b.highlights.map((h) => {
-        const color = h.tone === "gold" ? "var(--gold)"
-          : h.tone === "attention" ? "var(--coral)" : "var(--ink)";
-        return `<div class="h"><span class="k">${esc(h.k)}</span>
-          <span class="v" style="color:${color}">${esc(h.v)}</span></div>`;
-      }).join("")}
-    </div>
-    <div class="feeds">
-      ${b.feeds.map((f) => `
-        <span class="feed ${f.fresh ? "live" : "stale"}"><span class="fd"></span>${esc(f.name)}${f.fresh ? "" : " · stale"}</span>
-      `).join("")}
-    </div>
-    ${hasHtml ? `
-      <div class="bfpreview">
-        <iframe id="bf-mini" sandbox="allow-same-origin" title="Briefing preview"></iframe>
-        <button class="qc bfexpand" id="bf-open">⤢ Open full briefing</button>
-      </div>` : ""}`;
+    <div class="envelope" id="bf-envelope" role="button" tabindex="0"
+         aria-label="Open the full CEO Daily Briefing">
+      <div class="envfrom">
+        <span class="envavatar">C</span>
+        <div class="envmeta">
+          <div class="envname">Chloe <span class="envrole">· AI Executive Assistant</span></div>
+          <div class="envsubj">Chloe’s CEO Briefing — ${esc(today)}</div>
+        </div>
+      </div>
+      <div class="envpreview">${esc(b.quote)}</div>
+      <div class="envfoot">
+        <button class="openbrief" id="bf-open" type="button">Open Full Briefing →</button>
+        <span class="envfeeds">${b.feeds.length - stale}/${b.feeds.length} feeds live${
+          stale ? ` · ${stale} stale` : ""}</span>
+      </div>
+    </div>`;
+
   if (hasHtml) {
-    el("bf-mini").srcdoc = b.html;
-    el("bf-open").onclick = () => {
+    const open = () => {
       el("bf-frame").srcdoc = b.html;
       el("bf-overlay").classList.add("show");
     };
+    el("bf-open").onclick = (e) => { e.stopPropagation(); open(); };
+    const env = el("bf-envelope");
+    env.onclick = open;
+    env.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }
+    };
+  } else {
+    el("bf-open").disabled = true;
+    el("bf-open").textContent = "Briefing not staged yet";
   }
 }
 
@@ -426,13 +535,24 @@ const bfMoney = (n) => (typeof n === "number"
 const stamp = (live, asOf) => live ? "● LIVE" : "◌ CACHED " + (asOf || "");
 
 // One briefing-style KPI tile.
+// Values + their sub-lines carry .sens so the privacy switch can obscure them.
+// Labels, icons and structure stay visible — you can still explain the board
+// to someone without exposing the figures.
 function bfTile(cls, label, chip, num, sub) {
   return `<div class="bftile ${cls}">
     <div class="bfrow"><span class="bflabel">${esc(label)}</span>
       <span class="bfchip">${chip}</span></div>
-    <div class="bfnum">${num}</div>
-    <div class="bfsub">${sub ? esc(sub) : ""}</div>
+    <div class="bfnum sens">${num}</div>
+    <div class="bfsub${sub ? " sens" : ""}">${sub ? esc(sub) : ""}</div>
   </div>`;
+}
+
+/** "2026-08" → "August 2026"; falls back to whatever the API gave us. */
+function monthLabel(ym) {
+  const m = /^(\d{4})-(\d{2})$/.exec(ym || "");
+  if (!m) return ym || "this month";
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, 1);
+  return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
 function renderFinance() {
@@ -464,7 +584,7 @@ function renderFinance() {
   el("card-billing").innerHTML = `
     <div class="bfhead">
       <div class="bfic" style="background:#2A2113;color:#FFB454">💵</div>
-      <span class="bftitle">Billing Buddy — ${esc(b.month || "this month")}</span>
+      <span class="bftitle">Monthly Billing Buddy <span class="bfdiv">|</span> ${esc(monthLabel(b.month))}</span>
       <span class="bfstamp">${stamp(b.live, b.asOf)}</span>
     </div>
     <div class="bftiles">
@@ -494,23 +614,251 @@ function barcode(seed) {
   return `<div class="barcode">${bits}</div>`;
 }
 
+// ── health model ──────────────────────────────────────────────────────
+// The publisher computes `health` from real signals (file mtimes vs cron
+// expectations, live API results, explicit flags). The UI only presents it.
+const HEALTH = {
+  working: { led: "WORKING", cls: "working", blurb: "Actively running a job" },
+  healthy: { led: "HEALTHY", cls: "healthy", blurb: "Completed its work on schedule" },
+  idle:    { led: "IDLE",    cls: "idle",    blurb: "Nothing due right now" },
+  warning: { led: "WARNING", cls: "warning", blurb: "Behind schedule" },
+  stalled: { led: "STALLED", cls: "stalled", blurb: "Expected work has not happened" },
+  error:   { led: "ERROR",   cls: "error",   blurb: "A known failure occurred" },
+};
+const healthOf = (a) => HEALTH[a.health] ||
+  (a.status === "alert" ? HEALTH.stalled : HEALTH.healthy);
+
+/** A tiny operator at a workstation. Down states stop the animation and smoke. */
+function workstation(a, h) {
+  const down = h.cls === "stalled" || h.cls === "error";
+  return `
+    <div class="wstation ${h.cls}">
+      <div class="wsmoke" aria-hidden="true"><i></i><i></i><i></i></div>
+      <svg viewBox="0 0 64 40" class="wsvg" aria-hidden="true">
+        <rect class="wdesk" x="6" y="30" width="52" height="3" rx="1.5"/>
+        <rect class="wscreen" x="34" y="14" width="20" height="14" rx="2"/>
+        <line class="wscan" x1="36" y1="18" x2="52" y2="18"/>
+        <line class="wscan wscan2" x1="36" y1="22" x2="48" y2="22"/>
+        <circle class="whead" cx="18" cy="15" r="5"/>
+        <rect class="wbody" x="11" y="21" width="14" height="9" rx="3"/>
+        <rect class="warm" x="23" y="22" width="10" height="3" rx="1.5"/>
+        <circle class="weye" cx="16.4" cy="15" r="1"/>
+        <circle class="weye" cx="19.9" cy="15" r="1"/>
+      </svg>
+      <div class="wdata" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    </div>`;
+}
+
 function renderAgents() {
-  const alerts = S.agents.filter((a) => a.status === "alert").length;
-  el("agents-status").innerHTML = alerts
-    ? `<span class="dot warn"></span>${alerts} FLAG${alerts === 1 ? "" : "S"}`
+  const bad = S.agents.filter((a) => ["stalled", "error", "warning"].includes(
+    (healthOf(a)).cls)).length;
+  el("agents-status").innerHTML = bad
+    ? `<span class="dot warn"></span>${bad} NEED${bad === 1 ? "S" : ""} ATTENTION`
     : `<span class="dot ok"></span>ALL NOMINAL`;
-  el("agentsgrid").innerHTML = S.agents.map((a, i) => `
-    <div class="agent ${a.status === "alert" ? "alert" : ""}">
-      <div class="ahead">
-        <span class="dot ${a.status === "alert" ? "warn" : "ok"}"></span>
-        <span class="aname">${esc(a.name)}</span>
-        <span class="aled">${a.status === "alert" ? "CHECK" : "LIVE"}</span>
+
+  el("agentsgrid").innerHTML = S.agents.map((a, i) => {
+    const h = healthOf(a);
+    return `
+      <button class="agent ${h.cls}" data-agent="${esc(a.id || String(i))}"
+              type="button" aria-label="Open ${esc(a.name)} details">
+        ${workstation(a, h)}
+        <div class="ahead">
+          <span class="dot ${h.cls === "healthy" || h.cls === "working" ? "ok"
+            : h.cls === "idle" ? "" : "warn"}"></span>
+          <span class="aname">${esc(a.name)}</span>
+          <span class="aled ${h.cls}">${h.led}</span>
+        </div>
+        <div class="arole">${esc(a.role || "Automation")}</div>
+        <div class="ameta"><span>${esc(a.schedule)}</span><b>NEXT ${esc(String(a.nextRun).toUpperCase())}</b></div>
+        <div class="anote">${esc(a.note)}</div>
+        <span class="aopen">Details →</span>
+      </button>`;
+  }).join("");
+
+  el("agentsgrid").querySelectorAll("[data-agent]").forEach((btn) => {
+    btn.onclick = () => {
+      const id = btn.getAttribute("data-agent");
+      const a = S.agents.find((x) => (x.id || "") === id) ||
+                S.agents[Number(id)] || null;
+      if (a) openAgentDrawer(a);
+    };
+  });
+}
+
+// ── agent detail drawer ───────────────────────────────────────────────
+function buildDiagnosticPrompt(a, question) {
+  const L = [];
+  L.push(`Diagnose the "${a.name}" agent in Sky Command and get it running again.`);
+  L.push("");
+  L.push("AGENT CONTEXT (auto-collected by Sky Command)");
+  L.push(`- id: ${a.id}`);
+  L.push(`- name: ${a.name}`);
+  L.push(`- role: ${a.role || "—"}`);
+  L.push(`- purpose: ${a.purpose || a.desc || "—"}`);
+  L.push(`- runner: ${a.runner || "launchd"}`);
+  L.push(`- schedule: ${a.schedule}${a.cron ? `  (cron: ${a.cron})` : ""}`);
+  L.push(`- health: ${a.health || a.status}`);
+  L.push(`- status note: ${a.note}`);
+  L.push(`- last successful output: ${a.lastSuccessAt || a.lastSuccess || "unknown"}`);
+  L.push(`- next expected run: ${a.nextRun}`);
+  if (a.deps && a.deps.length) L.push(`- depends on: ${a.deps.join(", ")}`);
+  if (a.logPath) L.push(`- log: ${a.logPath}`);
+  if (a.problem) L.push(`- reported problem: ${a.problem}`);
+  if (a.action) L.push(`- Chloe's read: ${a.action}`);
+  L.push("");
+  L.push("ENVIRONMENT");
+  L.push("- Publisher: ~/.claude/bin/sky_command_publish.py (launchd, every 30 min)");
+  L.push("- Briefing stager: ~/.claude/bin/briefing_stager.py (launchd, 6:50 AM)");
+  L.push("- Agent feeds are read from ~/.claude/feeds (TCC-safe; launchd cannot read ~/Desktop)");
+  L.push("- Agent roster + flags: ~/.claude/sky-command/config.json");
+  L.push("");
+  L.push("REQUEST");
+  L.push(question && question.trim()
+    ? question.trim()
+    : "Find out why this agent is not completing its scheduled work, fix the root cause, and confirm it produced fresh output.");
+  L.push("");
+  L.push("Report back in plain English: what was wrong, what you changed, and how you verified it.");
+  return L.join("\n");
+}
+
+function openAgentDrawer(a) {
+  const h = healthOf(a);
+  const needsHelp = ["stalled", "error", "warning"].includes(h.cls);
+  const d = el("ag-drawer");
+
+  d.innerHTML = `
+    <div class="dwhead">
+      <div class="dwtitle">
+        <span class="dwled ${h.cls}">${h.led}</span>
+        <h3>${esc(a.name)}</h3>
+        <div class="dwrole">${esc(a.role || "Automation")} · runs via ${esc(a.runner || "launchd")}</div>
       </div>
-      <div class="adesc">${esc(a.desc)}</div>
-      ${barcode(i * 97 + 13)}
-      <div class="ameta"><span>${esc(a.schedule)}</span><b>NEXT ${esc(a.nextRun.toUpperCase())}</b></div>
-      <div class="anote">${esc(a.note)}</div>
-    </div>`).join("");
+      <button class="qc" id="dw-close" type="button">✕</button>
+    </div>
+    <div class="dwbody">
+      <section class="dwsec">
+        <h4>What Chloe uses this for</h4>
+        <p>${esc(a.purpose || a.desc)}</p>
+      </section>
+
+      <section class="dwsec">
+        <h4>Current status</h4>
+        <div class="dwstat ${h.cls}">
+          <span class="dwstatled"></span>
+          <div><b>${h.led.charAt(0) + h.led.slice(1).toLowerCase()}</b>
+            <div class="dwmuted">${esc(h.blurb)}</div></div>
+        </div>
+        <div class="dwgrid">
+          <div><span>Last successful run</span><b>${esc(a.lastSuccessAt || a.lastSuccess || "unknown")}</b></div>
+          <div><span>Next scheduled</span><b>${esc(a.nextRun)}</b></div>
+          <div><span>Schedule</span><b>${esc(a.schedule)}</b></div>
+          <div><span>Current activity</span><b>${esc(a.note)}</b></div>
+        </div>
+      </section>
+
+      ${needsHelp && (a.problem || a.action) ? `
+      <section class="dwsec problem">
+        <h4>What appears to be wrong</h4>
+        <p>${esc(a.problem || a.note)}</p>
+        ${a.action ? `<div class="dwrec"><b>Chloe recommends</b><p>${esc(a.action)}</p></div>` : ""}
+      </section>` : ""}
+
+      ${(a.deps && a.deps.length) ? `
+      <section class="dwsec">
+        <h4>Depends on</h4>
+        <ul class="dwdeps">${a.deps.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+      </section>` : ""}
+
+      <section class="dwsec">
+        <h4>Ask Chloe to investigate</h4>
+        <p class="dwmuted">Sends this agent’s full context plus your instruction to Claude Code
+          through the encrypted brief queue.</p>
+        <textarea id="dw-q" rows="2"
+          placeholder="e.g. Figure out why this agent stopped working and get it running again."></textarea>
+        <div class="dwbtns">
+          <button class="openbrief" id="dw-diag" type="button">🔧 Diagnose Agent</button>
+          <button class="qc" id="dw-copy" type="button">Copy prompt</button>
+        </div>
+        <div class="dwresult" id="dw-result"></div>
+      </section>
+
+      <details class="dwtech">
+        <summary>Technical details</summary>
+        <pre>${esc(JSON.stringify({
+          id: a.id, health: a.health, status: a.status, cron: a.cron,
+          runner: a.runner, log: a.logPath, lastSuccess: a.lastSuccessAt,
+          deps: a.deps,
+        }, null, 2))}</pre>
+      </details>
+    </div>`;
+
+  const close = () => {
+    d.classList.remove("show");
+    el("ag-veil").classList.remove("show");
+  };
+  el("dw-close").onclick = close;
+  el("ag-veil").onclick = close;
+  document.addEventListener("keydown", function esc2(e) {
+    if (e.key === "Escape") { close(); document.removeEventListener("keydown", esc2); }
+  });
+
+  el("dw-copy").onclick = async () => {
+    const p = buildDiagnosticPrompt(a, el("dw-q").value);
+    try {
+      await navigator.clipboard.writeText(p);
+      el("dw-result").innerHTML = `<span class="ok">✓ Prompt copied — paste into Claude Code.</span>`;
+    } catch {
+      el("dw-result").innerHTML = `<pre class="promptout">${esc(p)}</pre>`;
+    }
+  };
+  el("dw-diag").onclick = () => dispatchDiagnostic(a, el("dw-q").value);
+
+  el("ag-veil").classList.add("show");
+  d.classList.add("show");
+  d.focus();
+}
+
+/** Queue a diagnostic through the SAME encrypted brief pipeline Build mode
+ *  already uses: encrypt → commit to briefs/pending → Mac ingests → Codex.
+ *  There is no return channel yet, so we say so instead of faking a reply. */
+async function dispatchDiagnostic(a, question) {
+  const out = el("dw-result");
+  const prompt = buildDiagnosticPrompt(a, question);
+  if (!S.chat || !S.chat.ghToken || !S.chat.ghRepo) {
+    out.innerHTML = `<span class="warn">Dispatch channel unavailable — no repo credentials in
+      this state. Use “Copy prompt” and paste into Claude Code.</span>`;
+    return;
+  }
+  out.innerHTML = `<span class="dwmuted">Queueing diagnostic…</span>`;
+  const brief = {
+    task_id: `diagnose_${a.id}_${Date.now()}`,
+    title: `Diagnose agent: ${a.name}`,
+    agent: "codex",
+    permission_level: "green",
+    kind: "agent_diagnostic",
+    subject_agent: a.id,
+    created_at: new Date().toISOString(),
+    prompt,
+  };
+  try {
+    const enc = await encryptForRepo(brief);
+    const r = await fetch(
+      `https://api.github.com/repos/${S.chat.ghRepo}/contents/briefs/pending/${brief.task_id}.json.enc`, {
+        method: "PUT",
+        headers: { Authorization: "Bearer " + S.chat.ghToken, Accept: "application/vnd.github+json" },
+        body: JSON.stringify({
+          message: "agent diagnostic: " + a.id,
+          content: btoa(unescape(encodeURIComponent(enc))),
+        }),
+      });
+    if (!r.ok) throw new Error("GitHub " + r.status);
+    out.innerHTML = `<span class="ok">✓ Queued.</span> <span class="dwmuted">The Mac ingests it
+      within ~30 min and it lands in the Codex queue on the next hourly sync. Results are not
+      streamed back here yet — check the agent card or ask Chloe in chat.</span>`;
+  } catch (e) {
+    out.innerHTML = `<span class="warn">Couldn’t queue (${esc(e.message)}).
+      Use “Copy prompt” and paste into Claude Code instead.</span>`;
+  }
 }
 
 // ── bottom band ─────────────────────────────────────────
@@ -791,6 +1139,7 @@ function renderAll() {
   renderHeader();
   renderHorizon();
   renderInbox();
+  renderCleanup();
   renderBriefing();
   renderFocus();
   renderFinance();
@@ -801,7 +1150,7 @@ function renderAll() {
 
   requestAnimationFrame(() =>
     setTimeout(() => {
-      document.querySelectorAll(".bar .f[data-w]").forEach((b) => {
+      document.querySelectorAll(".bar .f[data-w], .bgfill[data-w]").forEach((b) => {
         b.style.width = b.dataset.w;
       });
       document.querySelectorAll(".ghostcats .gbar > div").forEach((b, i) => {
@@ -818,6 +1167,7 @@ async function boot() {
     el("sysline-text").textContent = "STATE UNAVAILABLE — CHECK PUBLISHER";
     return;
   }
+  initPrivacy();   // restore the last privacy state BEFORE the first paint
   renderAll();
   initSysline();
 

@@ -22,6 +22,10 @@
       </div>
       <div class="sysline"><span class="dot ok"></span><span id="sysline-text">ALL SYSTEMS NOMINAL</span></div>
       <div class="sysline" id="sync-chip"><span class="dot ok" id="sync-dot"></span><span id="sync-text">SYNCING…</span></div>
+      <button class="privtoggle" id="priv-toggle" type="button"
+              aria-pressed="false" title="Hide financial figures (P)">
+        <span class="pico" id="priv-ico">👁</span><span id="priv-label">FINANCIALS</span>
+      </button>
       <div class="topmeta">
         <div class="date" id="hdr-date"></div>
         <div class="wx" id="hdr-wx"></div>
@@ -74,13 +78,18 @@
     <!-- inbox manager + focus (moved down) -->
     <div class="grid two">
       <section class="card primary" id="card-inbox" aria-label="Sky Inbox Manager"></section>
-      <section class="card" aria-label="Focus this week">
-        <div class="chead">
-          <div class="ic" style="background:var(--goldsoft)">🎯</div>
-          <span class="ctitle">Focus this week</span>
-        </div>
-        <ul class="focus" id="focus-list"></ul>
-      </section>
+      <div class="stackcol">
+        <section class="card focuscard" id="card-focus" aria-label="Chloe's recommended focus">
+          <div class="chead">
+            <div class="ic" style="background:var(--goldsoft)">🎯</div>
+            <span class="ctitle">Chloe’s Recommended Focus<span class="fsub"> — this week, for Skyler</span></span>
+          </div>
+          <ul class="focus" id="focus-list"></ul>
+          <div class="focusfoot">Chloe’s read across finance, calendar, inbox &amp; pipeline</div>
+        </section>
+        <!-- background maintenance, deliberately low-prominence -->
+        <section class="card bgtask" id="card-cleanup" aria-label="Inbox batch cleanup"></section>
+      </div>
     </div>
 
     <!-- active agents — telemetry console -->
@@ -119,6 +128,11 @@
     </div>
     <iframe id="bf-frame" sandbox="allow-same-origin" title="CEO Daily Briefing"></iframe>
   </div>
+
+  <!-- agent detail drawer (slides in from the right) -->
+  <div class="drawerveil" id="ag-veil"></div>
+  <aside class="drawer" id="ag-drawer" role="dialog" aria-modal="true"
+         aria-label="Agent detail" tabindex="-1"></aside>
 
   <!-- passphrase gate -->
   <div class="lockveil" id="lock">
