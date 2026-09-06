@@ -104,7 +104,7 @@
 
     <!-- bottom band -->
     <div class="band">
-      <section class="card building-card" id="card-checkin" aria-label="Sky Weekly Check-in — in development"></section>
+      <section class="card" id="card-checkin" aria-label="Sky Weekly Check-in — personal performance"></section>
       <section class="card nodecard" aria-label="Connected systems">
         <div class="chead">
           <div class="ic" style="background:var(--tealsoft)">🛰</div>
@@ -127,6 +127,29 @@
       <button class="qc" id="bf-close">✕ Close</button>
     </div>
     <iframe id="bf-frame" sandbox="allow-same-origin" title="CEO Daily Briefing"></iframe>
+  </div>
+
+  <!-- weekly check-in full-screen form -->
+  <div class="cioverlay" id="ci-overlay" role="dialog" aria-modal="true"
+       aria-label="Sky Weekly Check-in">
+    <div class="cibar">
+      <span class="ctitle">☀️ Weekly Check-in</span>
+      <span class="ciweek" id="ci-week"></span>
+      <span class="cispacer"></span>
+      <span class="cistatus" id="ci-draft"></span>
+      <button class="qc" id="ci-close" type="button">✕ Close</button>
+    </div>
+    <div class="cibody"><div class="ciinner" id="ci-form"></div></div>
+    <div class="cifoot">
+      <div class="citally">
+        <div class="c good"><div class="v" id="ci-good">0</div><div class="k">Good</div></div>
+        <div class="c moderate"><div class="v" id="ci-mod">0</div><div class="k">Moderate</div></div>
+        <div class="c needs"><div class="v" id="ci-needs">0</div><div class="k">Needs work</div></div>
+        <div class="c total"><div class="v" id="ci-total">0/15</div><div class="k">Answered</div></div>
+      </div>
+      <span class="cistatus" id="ci-status"></span>
+      <button class="btn-gold cisave" id="ci-save" type="button">Save check-in</button>
+    </div>
   </div>
 
   <!-- agent detail drawer (slides in from the right) -->

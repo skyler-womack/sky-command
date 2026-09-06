@@ -13,6 +13,7 @@ let chatWired = false;
 let mode = "chat";               // "chat" | "build"
 let history = [];                 // chat-mode conversation history
 let sessionKeyBits = null;        // raw AES key after unlock (for briefs)
+let devMode = false;              // plaintext state.json — key is a placeholder
 let pendingBrief = null;
 
 const POLL_MS = 5 * 60 * 1000;
@@ -61,6 +62,7 @@ async function loadState({ interactive }) {
   try {
     const dev = await fetchJSON("state.json");
     sessionKeyBits = sessionKeyBits || new ArrayBuffer(32); // dev mode placeholder
+    devMode = true;
     return dev;
   } catch { /* encrypted path */ }
 
@@ -861,22 +863,335 @@ async function dispatchDiagnostic(a, question) {
   }
 }
 
-// ── bottom band ─────────────────────────────────────────
+// ── bottom band: personal performance ───────────────────
+const CI_STATUS = {
+  done:    { dot: "ok",   label: "ON TRACK" },
+  due:     { dot: "gold", label: "DUE" },
+  overdue: { dot: "warn", label: "OVERDUE" },
+  empty:   { dot: "warn", label: "NO DATA" },
+};
+
+const band = (p) => (p >= 75 ? "good" : p >= 50 ? "mid" : "low");
+
 function renderCheckin() {
   const c = S.checkin;
-  el("card-checkin").innerHTML = `
-    <div class="scan"></div>
+  const st = CI_STATUS[c.status] || CI_STATUS.empty;
+  const head = `
     <div class="chead">
       <div class="ic" style="background:var(--goldsoft)">🌅</div>
       <span class="ctitle">${esc(c.name)}</span>
-      <span class="cstatus building"><span class="dot gold"></span>COMING ONLINE</span>
+      <span class="cstatus ${esc(c.status)}"><span class="dot ${st.dot}"></span>${st.label}</span>
+    </div>`;
+
+  if (c.status === "empty" || !c.score) {
+    el("card-checkin").innerHTML = head + `
+      <div class="ppempty">${esc(c.statusNote)}<br/>
+        ${c.ruleCount} rules across ${c.categories.length} areas · ${c.goalCount} goals tracked.</div>
+      <div class="ppactions"><button class="btn-gold" id="ci-open">Start first check-in</button></div>`;
+    el("ci-open").onclick = openCheckin;
+    return;
+  }
+
+  const s = c.score;
+  const cats = s.categories.map((k) => `
+    <div class="ppcat ${band(k.pct)}">
+      <div class="t"><span>${esc(k.short)}</span><b>${k.pct}%</b></div>
+      <div class="gbar"><div data-w="${k.pct}%"></div></div>
+    </div>`).join("");
+
+  const peak = Math.max(...c.trend.map((t) => t.pct), 1);
+  const spark = c.trend.length > 1
+    ? `<span class="ppspark" title="Last ${c.trend.length} weeks">${
+        c.trend.map((t, i) => `<i style="height:${Math.max(2, Math.round(22 * t.pct / peak))}px"
+          class="${i === c.trend.length - 1 ? "last" : ""}" title="${esc(t.weekOf)} · ${t.pct}%"></i>`).join("")
+      }</span>` : "";
+
+  const energy = c.energy.filter((e) => e.value != null);
+  const carry = c.carryForward || c.topGoal;
+
+  el("card-checkin").innerHTML = head + `
+    <div class="pp">
+      <div class="ppscore ${band(s.pct)}">
+        <div class="v">${s.pct}<small>%</small></div>
+        <div class="k">${s.answered}/${c.ruleCount} rated</div>
+      </div>
+      <div class="ppcats">${cats}</div>
     </div>
-    <div class="smallnote">${esc(c.note)}</div>
-    <div class="ghostcats">
-      ${c.categories.map((n) => `
-        <div class="gc">${esc(n)}<div class="gbar"><div></div></div></div>`).join("")}
+    <div class="ppmeta">
+      <span>Streak <b>${c.streak}w</b></span>
+      <span>Logged <b>${c.totalCheckins}</b></span>
+      <span>Goals moved <b>${c.goalsMoved}</b></span>
+      ${energy.length ? `<span>Energy <b>${
+        Math.round(energy.reduce((a, e) => a + e.value, 0) / energy.length * 10) / 10}/10</b></span>` : ""}
+      ${spark}
     </div>
-    <div class="bootline">initializing weekly ritual … ${c.progressPct}% built<span class="cursor">▊</span></div>`;
+    ${carry ? `<div class="ppcarry"><span>Carrying into this week —</span> ${esc(carry)}</div>` : ""}
+    <div class="ppactions">
+      <button class="btn-gold" id="ci-open">${c.status === "done" ? "Revise check-in" : "Start check-in"}</button>
+      <span class="cistatus">${esc(c.statusNote)}</span>
+    </div>`;
+  el("ci-open").onclick = openCheckin;
+}
+
+// ── weekly check-in form ────────────────────────────────
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const RATINGS = [["good", "Good"], ["moderate", "Moderate"], ["needs", "Needs work"]];
+const isoDate = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** Monday of the week this ritual plans — always next week, so a Sunday
+ *  check-in plans tomorrow. Must stay in step with planning_monday() in
+ *  sky_command_publish.py or entries file under the wrong week. */
+function planningMonday(now = new Date()) {
+  const d = new Date(now);
+  d.setDate(now.getDate() + (now.getDay() === 0 ? 1 : 8 - now.getDay()));
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+const CI = { ratings: {}, goals: {}, week: null, draftKey: null };
+
+function openCheckin() {
+  const c = S.checkin;
+  const monday = planningMonday();
+  CI.week = isoDate(monday);
+  CI.draftKey = "skyCheckinDraft:" + CI.week;
+  CI.ratings = {};
+  CI.goals = {};
+
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  const fmt = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  el("ci-week").textContent = `WEEK OF ${fmt(monday).toUpperCase()} — ${fmt(sunday).toUpperCase()}`;
+
+  const rulesByCat = {};
+  c.rules.forEach((r) => (rulesByCat[r.category] ||= []).push(r));
+
+  el("ci-form").innerHTML = `
+    <div class="cisec">
+      <h3>🏆 Last week's review</h3>
+      <div class="sub">Be honest with yourself.</div>
+      <div class="cilabel">3–5 biggest wins</div>
+      ${[1, 2, 3, 4, 5].map((i) => `
+        <div class="ciwin"><div class="n">${i}</div>
+          <textarea name="win${i}" rows="2" placeholder="${
+            i < 4 ? "What went really well?" : "Optional…"}"></textarea></div>`).join("")}
+      <div class="cifield"><div class="cilabel">Lessons learned — keep, change, adjust</div>
+        <textarea name="lessons" rows="3" placeholder="Be specific. What will you actually change?"></textarea></div>
+      <div class="cifield"><div class="cilabel">Personal / housekeeping</div>
+        <textarea name="personalTasks" rows="2"></textarea></div>
+      <div class="cifield"><div class="cilabel">Outstanding or lingering</div>
+        <textarea name="outstanding" rows="2"></textarea></div>
+    </div>
+
+    <div class="cisec">
+      <h3>📆 This week's plan</h3>
+      <div class="sub">${esc(fmt(monday))} — ${esc(fmt(sunday))}</div>
+      ${DAYS.map((day, i) => {
+        const d = new Date(monday); d.setDate(monday.getDate() + i);
+        return `<div class="ciday">
+          <div class="d">${day}<em>${fmt(d)}</em></div>
+          <textarea name="day_${day.toLowerCase()}" rows="2" placeholder="${
+            i > 4 ? "Rest, enjoyment, personal…" : "Key focus, meetings, goals…"}"></textarea></div>`;
+      }).join("")}
+    </div>
+
+    <div class="cisec">
+      <h3>⚖️ Weekly self-assessment</h3>
+      <div class="sub">Rate yourself against your ${c.rules.length} rules.</div>
+      ${Object.entries(rulesByCat).map(([cat, items]) => `
+        <div class="cicat">${esc(cat)}</div>
+        ${items.map((r) => `
+          <div class="cirule" id="rule-${r.num}">
+            <div class="n">${r.num}</div>
+            <div class="t">${esc(r.text)}</div>
+            <div class="cirbtns">${RATINGS.map(([v, lbl]) =>
+              `<button class="cirb" type="button" data-rule="${r.num}" data-val="${v}">${lbl}</button>`).join("")}
+            </div>
+          </div>`).join("")}`).join("")}
+    </div>
+
+    <div class="cisec">
+      <h3>🎯 Goals progress</h3>
+      <div class="sub">Mark anything you moved this week.</div>
+      ${Object.entries(c.goals).map(([cat, list]) => `
+        <div class="cigoalcat">${esc(cat)}</div>
+        ${list.map((g, i) => {
+          const key = `${cat}_${i}`;
+          return `<div class="cigoal">
+            <div class="box" data-goal="${esc(key)}" role="checkbox" aria-checked="false" tabindex="0">✓</div>
+            <div class="g">${esc(g)}</div></div>`;
+        }).join("")}`).join("")}
+      <div class="cifield" style="margin-top:14px">
+        <div class="cilabel">The #1 goal getting your focus this week</div>
+        <textarea name="topGoal" rows="2"></textarea></div>
+    </div>
+
+    <div class="cisec">
+      <h3>⚡ Energy &amp; spiritual check</h3>
+      <div class="sub">How are you doing — not the business.</div>
+      <div class="cienergy">
+        ${c.energyFields.map((f) => `
+          <div class="cifield"><div class="cilabel">${esc(f.label)} (1–10)</div>
+            <input type="text" name="${esc(f.key)}" placeholder="e.g. 7 — two workouts in"/></div>`).join("")}
+      </div>
+      <div class="cifield"><div class="cilabel">One thing to carry into this week</div>
+        <textarea name="carryForward" rows="2" placeholder="A word, a posture, a commitment."></textarea></div>
+    </div>`;
+
+  el("ci-form").querySelectorAll(".cirb").forEach((b) => {
+    b.onclick = () => rateRule(b.dataset.rule, b.dataset.val);
+  });
+  el("ci-form").querySelectorAll(".box[data-goal]").forEach((b) => {
+    b.onclick = () => toggleGoal(b);
+    b.onkeydown = (e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggleGoal(b); } };
+  });
+  el("ci-form").addEventListener("input", saveDraft);
+
+  restoreDraft();
+  ciTally();
+  el("ci-status").textContent = "";
+  el("ci-status").className = "cistatus";
+  el("ci-save").disabled = false;
+  el("ci-overlay").classList.add("show");
+  document.body.style.overflow = "hidden";
+}
+
+function closeCheckin() {
+  el("ci-overlay").classList.remove("show");
+  document.body.style.overflow = "";
+}
+
+function rateRule(num, val) {
+  CI.ratings["r" + num] = val;
+  el("rule-" + num).querySelectorAll(".cirb").forEach((b) => {
+    b.className = "cirb" + (b.dataset.val === val ? " on-" + val : "");
+  });
+  ciTally();
+  saveDraft();
+}
+
+function toggleGoal(box) {
+  const key = box.dataset.goal;
+  CI.goals[key] = !CI.goals[key];
+  box.classList.toggle("on", CI.goals[key]);
+  box.setAttribute("aria-checked", String(!!CI.goals[key]));
+  saveDraft();
+}
+
+function ciTally() {
+  const v = Object.values(CI.ratings);
+  const n = (r) => v.filter((x) => x === r).length;
+  el("ci-good").textContent = n("good");
+  el("ci-mod").textContent = n("moderate");
+  el("ci-needs").textContent = n("needs");
+  el("ci-total").textContent = `${v.length}/${S.checkin.ruleCount}`;
+}
+
+function collectCheckin() {
+  const data = { weekOf: CI.week, savedAt: new Date().toISOString() };
+  el("ci-form").querySelectorAll("textarea[name], input[name]").forEach((f) => {
+    if (f.value.trim()) data[f.name] = f.value.trim();
+  });
+  data.ratings = { ...CI.ratings };
+  data.goalProgress = { ...CI.goals };
+  return data;
+}
+
+/** Drafts live in this browser only, so a half-finished Sunday check-in
+ *  survives a refresh without touching the repo. */
+function saveDraft() {
+  try {
+    localStorage.setItem(CI.draftKey, JSON.stringify(collectCheckin()));
+    el("ci-draft").textContent = "draft saved";
+  } catch { /* private mode — the form still works, just no draft */ }
+}
+
+function restoreDraft() {
+  let d;
+  try { d = JSON.parse(localStorage.getItem(CI.draftKey) || "null"); } catch { return; }
+  if (!d) return;
+  el("ci-form").querySelectorAll("textarea[name], input[name]").forEach((f) => {
+    if (d[f.name]) f.value = d[f.name];
+  });
+  Object.entries(d.ratings || {}).forEach(([k, v]) => rateRule(k.slice(1), v));
+  Object.entries(d.goalProgress || {}).forEach(([k, v]) => {
+    if (!v) return;
+    const box = el("ci-form").querySelector(`.box[data-goal="${CSS.escape(k)}"]`);
+    if (box) toggleGoal(box);
+  });
+  el("ci-draft").textContent = "draft restored";
+}
+
+async function saveCheckin() {
+  const data = collectCheckin();
+  const answered = Object.keys(data.ratings).length;
+  const status = el("ci-status");
+  if (!answered) {
+    status.className = "cistatus warn";
+    status.textContent = "Rate at least one rule before saving.";
+    return;
+  }
+
+  // Dev mode encrypts with a zero-key placeholder, so the publisher could
+  // never decrypt what we'd file. Keep the draft, refuse the push.
+  if (devMode) {
+    status.className = "cistatus warn";
+    status.textContent = "Dev mode (plaintext state) — draft saved locally, not filed.";
+    return;
+  }
+  const path = `checkins/pending/${CI.week}.json.enc`;
+  if (!S.chat || !S.chat.ghToken || !S.chat.ghRepo) {
+    status.className = "cistatus warn";
+    status.textContent = "Saved as a local draft only — no repo credentials in this state.";
+    return;
+  }
+
+  el("ci-save").disabled = true;
+  status.className = "cistatus";
+  status.textContent = "Encrypting and filing…";
+  try {
+    const enc = await encryptForRepo(data);
+    const url = `https://api.github.com/repos/${S.chat.ghRepo}/contents/${path}`;
+    const headers = {
+      Authorization: "Bearer " + S.chat.ghToken,
+      Accept: "application/vnd.github+json",
+    };
+    // A re-submitted week is still sitting in pending until the Mac ingests it;
+    // GitHub needs that blob's sha to overwrite rather than 409.
+    let sha;
+    const head = await fetch(url, { headers, cache: "no-store" });
+    if (head.ok) sha = (await head.json()).sha;
+
+    const r = await fetch(url, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({
+        message: `check-in: week of ${CI.week}`,
+        content: btoa(unescape(encodeURIComponent(enc))),
+        ...(sha ? { sha } : {}),
+      }),
+    });
+    if (!r.ok) throw new Error("GitHub " + r.status);
+
+    try { localStorage.removeItem(CI.draftKey); } catch { /* nothing to clear */ }
+    status.className = "cistatus ok";
+    status.textContent = `✓ Filed — ${answered}/${S.checkin.ruleCount} rated. The board picks it up within ~30 min.`;
+    el("ci-draft").textContent = "";
+    setTimeout(closeCheckin, 2200);
+  } catch (e) {
+    el("ci-save").disabled = false;
+    status.className = "cistatus warn";
+    status.textContent = `Couldn't file it (${esc(e.message)}). Your draft is saved locally — try again.`;
+  }
+}
+
+function initCheckin() {
+  el("ci-close").onclick = closeCheckin;
+  el("ci-save").onclick = saveCheckin;
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && el("ci-overlay").classList.contains("show")) closeCheckin();
+  });
 }
 
 function renderConnections() {
@@ -1150,13 +1465,8 @@ function renderAll() {
 
   requestAnimationFrame(() =>
     setTimeout(() => {
-      document.querySelectorAll(".bar .f[data-w], .bgfill[data-w]").forEach((b) => {
-        b.style.width = b.dataset.w;
-      });
-      document.querySelectorAll(".ghostcats .gbar > div").forEach((b, i) => {
-        b.style.transition = "width 1.4s ease " + i * 0.12 + "s";
-        b.style.width = 30 + Math.random() * 45 + "%";
-      });
+      document.querySelectorAll(".bar .f[data-w], .bgfill[data-w], .ppcat .gbar > div[data-w]")
+        .forEach((b) => { b.style.width = b.dataset.w; });
     }, 250));
 }
 
@@ -1168,6 +1478,7 @@ async function boot() {
     return;
   }
   initPrivacy();   // restore the last privacy state BEFORE the first paint
+  initCheckin();
   renderAll();
   initSysline();
 
