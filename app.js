@@ -883,7 +883,7 @@ function renderCheckin() {
       <span class="cstatus ${esc(c.status)}"><span class="dot ${st.dot}"></span>${st.label}</span>
     </div>`;
 
-  if (c.status === "empty" || !c.score) {
+  if (c.status === "empty" || !c.score || c.score.pct === null) {
     el("card-checkin").innerHTML = head + `
       <div class="ppempty">${esc(c.statusNote)}<br/>
         ${c.ruleCount} rules across ${c.categories.length} areas · ${c.goalCount} goals tracked.</div>
