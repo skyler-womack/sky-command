@@ -1502,22 +1502,11 @@ function dashAnalytics(d) {
     </div>
 
     <div class="cdsec">
-      <h4>Life balance heatmap</h4>
-      <div class="smallnote" style="margin-bottom:10px">Green good · amber average ·
-        red needs work — the same meaning your Basecamp highlights carried.</div>
-      <div class="cdheatwrap">
-        <table class="cdheat">
-          <thead><tr><th></th>${names.map((n) => `<th>${esc(n)}</th>`).join("")}</tr></thead>
-          <tbody>
-            ${heat.slice().reverse().map((r) => `<tr>
-              <th>${esc(shortWeek(r.weekOf))}</th>
-              ${r.cells.map((v, i) => `<td class="${band(v)}" data-week="${esc(r.weekOf)}"
-                title="${esc(names[i])} · ${esc(r.weekOf)} · ${v === null ? "not rated" : v + "%"}">
-                ${v === null ? "" : v}</td>`).join("")}
-            </tr>`).join("")}
-          </tbody>
-        </table>
-      </div>
+      <h4>Life balance calendar</h4>
+      <div class="smallnote" style="margin-bottom:12px">Green good · amber average ·
+        red needs work — the same meaning your Basecamp highlights carried.
+        Hollow cells are weeks with no check-in. Click any week to open its report.</div>
+      ${monthCalendar(heat, names, weeks)}
     </div>
 
     <div class="cdsec">
@@ -1545,6 +1534,73 @@ function dashAnalytics(d) {
           </div>`).join("")}
       </div>
     </div>`;
+}
+
+const MONTHS = ["January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December"];
+
+/** Every Monday falling inside a given year/month. */
+function mondaysIn(year, month) {
+  const out = [];
+  const d = new Date(year, month, 1);
+  d.setDate(d.getDate() + ((8 - d.getDay()) % 7));   // first Monday
+  while (d.getMonth() === month) {
+    out.push(isoDate(d));
+    d.setDate(d.getDate() + 7);
+  }
+  return out;
+}
+
+/** Life balance as a month-by-month calendar: one card per month, each a grid
+ *  of that month's weeks against the six life areas. Weeks with no check-in
+ *  are rendered hollow rather than skipped, so the gaps stay visible. */
+function monthCalendar(heat, names, weeks) {
+  if (!heat.length) return `<div class="ppempty">No weeks in this range.</div>`;
+  const byWeek = Object.fromEntries(heat.map((r) => [r.weekOf, r.cells]));
+  const scoreOf = Object.fromEntries(weeks.map((w) => [w.weekOf, w.pct]));
+  const first = fromISO(heat[0].weekOf), last = fromISO(heat[heat.length - 1].weekOf);
+
+  const cards = [];
+  for (let y = first.getFullYear(), m = first.getMonth();
+       y < last.getFullYear() || (y === last.getFullYear() && m <= last.getMonth());
+       m === 11 ? (m = 0, y++) : m++) {
+    const mondays = mondaysIn(y, m);
+    const logged = mondays.filter((w) => byWeek[w]);
+    if (!logged.length) continue;                     // month with nothing logged
+    const scores = logged.map((w) => scoreOf[w]).filter((p) => p !== null && p !== undefined);
+    const mAvg = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
+
+    cards.push(`
+      <div class="cdmon">
+        <div class="cdmonh">
+          <span class="nm">${MONTHS[m]} <em>${y}</em></span>
+          <span class="av ${band(mAvg)}">${mAvg === null ? "—" : mAvg + "%"}</span>
+        </div>
+        <table class="cdmg">
+          <thead><tr><th></th>${mondays.map((w) =>
+            `<th>${fromISO(w).getDate()}</th>`).join("")}</tr></thead>
+          <tbody>
+            <tr class="ovr"><th>Week</th>${mondays.map((w) => {
+              const p = byWeek[w] ? scoreOf[w] : undefined;
+              return p === undefined || p === null
+                ? `<td class="none" title="${esc(w)} · no check-in"></td>`
+                : `<td class="${band(p)}" data-week="${esc(w)}"
+                     title="Week of ${esc(w)} · ${p}% overall">${p}</td>`;
+            }).join("")}</tr>
+            ${names.map((n, ci) => `<tr><th>${esc(n)}</th>${mondays.map((w) => {
+              const cells = byWeek[w];
+              if (!cells) return `<td class="none" title="${esc(w)} · no check-in"></td>`;
+              const v = cells[ci];
+              return v === null
+                ? `<td class="skip" data-week="${esc(w)}" title="${esc(n)} · ${esc(w)} · not rated"></td>`
+                : `<td class="${band(v)}" data-week="${esc(w)}"
+                     title="${esc(n)} · week of ${esc(w)} · ${v}%"></td>`;
+            }).join("")}</tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`);
+  }
+  return `<div class="cdmons">${cards.join("")}</div>`;
 }
 
 const CAT_COLORS = ["#4FD1B5", "#E9B44C", "#9A8CF0", "#F0766B", "#5AA0FF", "#7ED992"];
@@ -1661,8 +1717,8 @@ function wireDashTab(d) {
       h.parentElement.classList.toggle("open", !panel.hidden);
     };
   });
-  // a heatmap cell jumps to that week's report
-  body.querySelectorAll(".cdheat td[data-week]").forEach((td) => {
+  // a calendar cell jumps to that week's report
+  body.querySelectorAll(".cdmg td[data-week]").forEach((td) => {
     td.onclick = () => openReport(td.dataset.week);
   });
   // "needs attention" jumps to the goal in its category block

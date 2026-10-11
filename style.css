@@ -664,23 +664,45 @@ body {
 .cdleg.off { opacity: 0.4; }
 .cdleg.off i { background: var(--ink3) !important; }
 
-/* heatmap */
-.cdheatwrap { overflow-x: auto; }
-.cdheat { border-collapse: separate; border-spacing: 3px; font-size: 11px; min-width: 460px; }
-.cdheat th {
-  font-weight: 600; color: var(--ink3); font-size: 10px; text-align: left;
-  letter-spacing: 0.04em; padding: 2px 6px; white-space: nowrap;
+/* life balance calendar — one card per month */
+.cdmons { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.cdmon { background: var(--bg2); border: 1px solid var(--line); border-radius: 12px; padding: 13px 14px; }
+.cdmonh { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+.cdmonh .nm { font-size: 12.5px; color: var(--ink); font-weight: 600; }
+.cdmonh .nm em { font-style: normal; color: var(--ink3); font-weight: 400; font-size: 11px; }
+.cdmonh .av { font-family: 'JetBrains Mono', monospace; font-size: 14px; color: var(--ink2); }
+.cdmonh .av.good { color: var(--teal); } .cdmonh .av.mid { color: var(--gold); } .cdmonh .av.low { color: var(--coral); }
+
+.cdmg { border-collapse: separate; border-spacing: 2px; width: 100%; table-layout: fixed; }
+.cdmg thead th {
+  font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 500;
+  color: var(--ink3); text-align: center; padding-bottom: 2px;
 }
-.cdheat tbody th { font-family: 'JetBrains Mono', monospace; }
-.cdheat td {
-  width: 56px; height: 28px; text-align: center; border-radius: 6px; cursor: pointer;
-  font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
-  background: var(--panel); color: var(--ink3); transition: transform 0.12s;
+.cdmg thead th:first-child, .cdmg tbody th { width: 76px; }
+.cdmg tbody th {
+  font-size: 10px; font-weight: 500; color: var(--ink3); text-align: left;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 4px;
 }
-.cdheat td:hover { transform: scale(1.07); }
-.cdheat td.good { background: rgba(79,209,181,.22); color: var(--teal); }
-.cdheat td.mid  { background: rgba(233,180,76,.20); color: var(--gold); }
-.cdheat td.low  { background: rgba(240,118,107,.20); color: var(--coral); }
+.cdmg td {
+  height: 17px; border-radius: 4px; background: var(--panel);
+  cursor: pointer; transition: transform 0.12s, outline-color 0.12s;
+  outline: 1px solid transparent;
+}
+.cdmg td:hover { transform: scale(1.14); outline-color: var(--line2); }
+.cdmg td.none { background: none; border: 1px dashed var(--line); cursor: default; }
+.cdmg td.none:hover { transform: none; }
+.cdmg td.skip { background: var(--line); }
+.cdmg td.good { background: var(--teal); opacity: .82; }
+.cdmg td.mid  { background: var(--gold); opacity: .82; }
+.cdmg td.low  { background: var(--coral); opacity: .82; }
+.cdmg tr.ovr td {
+  height: 22px; text-align: center; font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; color: var(--bg); font-weight: 600; opacity: 1;
+}
+.cdmg tr.ovr td.good { background: rgba(79,209,181,.9); }
+.cdmg tr.ovr td.mid  { background: rgba(233,180,76,.9); }
+.cdmg tr.ovr td.low  { background: rgba(240,118,107,.9); }
+.cdmg tr.ovr th { color: var(--ink2); font-weight: 600; }
 
 /* rule ranking */
 .cdrank { display: flex; flex-direction: column; gap: 5px; }
