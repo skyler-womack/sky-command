@@ -989,10 +989,6 @@ function openCheckin() {
             i < 4 ? "What went really well?" : "Optional…"}"></textarea></div>`).join("")}
       <div class="cifield"><div class="cilabel">Lessons learned — keep, change, adjust</div>
         <textarea name="lessons" rows="3" placeholder="Be specific. What will you actually change?"></textarea></div>
-      <div class="cifield"><div class="cilabel">Personal / housekeeping</div>
-        <textarea name="personalTasks" rows="2"></textarea></div>
-      <div class="cifield"><div class="cilabel">Outstanding or lingering</div>
-        <textarea name="outstanding" rows="2"></textarea></div>
     </div>
 
     <div class="cisec">
