@@ -871,7 +871,8 @@ const CI_STATUS = {
   empty:   { dot: "warn", label: "NO DATA" },
 };
 
-const band = (p) => (p >= 75 ? "good" : p >= 50 ? "mid" : "low");
+const band = (p) =>
+  (p === null || p === undefined ? "" : p >= 75 ? "good" : p >= 50 ? "mid" : "low");
 
 function renderCheckin() {
   const c = S.checkin;
@@ -906,7 +907,6 @@ function renderCheckin() {
           class="${i === c.trend.length - 1 ? "last" : ""}" title="${esc(t.weekOf)} · ${t.pct}%"></i>`).join("")
       }</span>` : "";
 
-  const energy = c.energy.filter((e) => e.value != null);
   const carry = c.carryForward || c.topGoal;
 
   el("card-checkin").innerHTML = head + `
@@ -921,16 +921,16 @@ function renderCheckin() {
       <span>Streak <b>${c.streak}w</b></span>
       <span>Logged <b>${c.totalCheckins}</b></span>
       <span>Goals moved <b>${c.goalsMoved}</b></span>
-      ${energy.length ? `<span>Energy <b>${
-        Math.round(energy.reduce((a, e) => a + e.value, 0) / energy.length * 10) / 10}/10</b></span>` : ""}
       ${spark}
     </div>
     ${carry ? `<div class="ppcarry"><span>Carrying into this week —</span> ${esc(carry)}</div>` : ""}
     <div class="ppactions">
       <button class="btn-gold" id="ci-open">${c.status === "done" ? "Revise check-in" : "Start check-in"}</button>
+      <button class="qc" id="pp-dash">📊 Dashboard</button>
       <span class="cistatus">${esc(c.statusNote)}</span>
     </div>`;
   el("ci-open").onclick = openCheckin;
+  el("pp-dash").onclick = openDashboard;
 }
 
 // ── weekly check-in form ────────────────────────────────
@@ -938,6 +938,10 @@ const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 const RATINGS = [["good", "Good"], ["moderate", "Moderate"], ["needs", "Needs work"]];
 const isoDate = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+// ISO day -> "Oct 12", parsed as local so the label can't slip a day
+const fromISO = (s) => new Date(...s.split("-").map((n, i) => (i === 1 ? +n - 1 : +n)));
+const dayLabel = (s) => fromISO(s).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+const shortWeek = (s) => dayLabel(s);
 
 /** Monday of the week this ritual plans — always next week, so a Sunday
  *  check-in plans tomorrow. Must stay in step with planning_monday() in
@@ -967,6 +971,13 @@ function openCheckin() {
   const rulesByCat = {};
   c.rules.forEach((r) => (rulesByCat[r.category] ||= []).push(r));
 
+  const hk = c.housekeeping || {};
+  // the publisher only ships meetings for the week being planned, but guard
+  // anyway so a stale state can never show last week's calendar as this week's
+  const cal = (c.calendar || []).filter((e) => e.day >= CI.week);
+  const byDay = [...cal.reduce((m, e) => m.set(e.day, [...(m.get(e.day) || []), e]),
+                               new Map()).entries()];
+
   el("ci-form").innerHTML = `
     <div class="cisec">
       <h3>🏆 Last week's review</h3>
@@ -986,14 +997,30 @@ function openCheckin() {
 
     <div class="cisec">
       <h3>📆 This week's plan</h3>
-      <div class="sub">${esc(fmt(monday))} — ${esc(fmt(sunday))}</div>
-      ${DAYS.map((day, i) => {
-        const d = new Date(monday); d.setDate(monday.getDate() + i);
-        return `<div class="ciday">
-          <div class="d">${day}<em>${fmt(d)}</em></div>
-          <textarea name="day_${day.toLowerCase()}" rows="2" placeholder="${
-            i > 4 ? "Rest, enjoyment, personal…" : "Key focus, meetings, goals…"}"></textarea></div>`;
-      }).join("")}
+      <div class="sub">${esc(fmt(monday))} — ${esc(fmt(sunday))}${
+        cal.length ? ` · ${cal.length} meeting${cal.length === 1 ? "" : "s"}` : ""}</div>
+      ${cal.length ? byDay.map(([day, evs]) => `
+        <div class="cicalday">
+          <div class="cdh">${esc(evs[0].dow)}<em>${esc(dayLabel(day))}</em></div>
+          ${evs.map((e, i) => {
+            const id = `${day}_${i}`;
+            return `<div class="cevt" data-evt="${esc(id)}">
+              <div class="ct">${esc(e.time)}</div>
+              <div class="cb">
+                <div class="cn">${esc(e.title)}</div>
+                ${e.meta ? `<div class="cm">${esc(e.meta)}</div>` : ""}
+                <button class="cprepbtn" type="button" data-for="${esc(id)}">+ prep to-do</button>
+                <input class="cprep" type="text" hidden
+                       data-event="${esc(e.title)}" data-dow="${esc(e.dow)}" data-time="${esc(e.time)}"
+                       name="prep_${esc(id)}" placeholder="What do you need to do before this?"/>
+              </div>
+            </div>`;
+          }).join("")}
+        </div>`).join("")
+        : `<div class="ppempty">No meetings found for next week — either the week is
+             genuinely clear or the calendar feed is stale. Nothing is being invented here.</div>`}
+      <div class="smallnote" style="margin-top:10px">Prep to-dos go to your
+        <b>${esc(hk.tasklist || "Sky Weekly Check-In")}</b> list in Google Tasks.</div>
     </div>
 
     <div class="cisec">
@@ -1013,31 +1040,51 @@ function openCheckin() {
 
     <div class="cisec">
       <h3>🎯 Goals progress</h3>
-      <div class="sub">Mark anything you moved this week.</div>
+      <div class="sub">Mark anything you moved this week. A ✓ badge means you
+        already moved it in an earlier week.</div>
       ${Object.entries(c.goals).map(([cat, list]) => `
         <div class="cigoalcat">${esc(cat)}</div>
         ${list.map((g, i) => {
           const key = `${cat}_${i}`;
+          const since = (c.goalsEverMoved || {})[key];
           return `<div class="cigoal">
             <div class="box" data-goal="${esc(key)}" role="checkbox" aria-checked="false" tabindex="0">✓</div>
-            <div class="g">${esc(g)}</div></div>`;
+            <div class="g">${esc(g)}</div>
+            ${since ? `<span class="gdone" title="First moved the week of ${esc(since)}">✓ ${esc(shortWeek(since))}</span>` : ""}
+          </div>`;
         }).join("")}`).join("")}
-      <div class="cifield" style="margin-top:14px">
-        <div class="cilabel">The #1 goal getting your focus this week</div>
-        <textarea name="topGoal" rows="2"></textarea></div>
     </div>
 
     <div class="cisec">
-      <h3>⚡ Energy &amp; spiritual check</h3>
-      <div class="sub">How are you doing — not the business.</div>
-      <div class="cienergy">
-        ${c.energyFields.map((f) => `
-          <div class="cifield"><div class="cilabel">${esc(f.label)} (1–10)</div>
-            <input type="text" name="${esc(f.key)}" placeholder="e.g. 7 — two workouts in"/></div>`).join("")}
+      <h3>🧹 ${esc(hk.label || "Housekeeping Tasks")}</h3>
+      <div class="sub">${esc(hk.hint || "What has to get handled this week?")}
+        Each one becomes a Google Task, and Chloe emails you Wednesday morning
+        about anything still open.</div>
+      <div id="ci-hk"></div>
+      <button class="qc" type="button" id="ci-hk-add">+ Add another</button>
+    </div>
+
+    <div class="cisec cidashcta">
+      <div>
+        <div class="cilabel" style="margin:0 0 3px">Zoom out</div>
+        <div class="smallnote">See every week you've logged — scores, trends and
+          the areas that keep slipping.</div>
       </div>
-      <div class="cifield"><div class="cilabel">One thing to carry into this week</div>
-        <textarea name="carryForward" rows="2" placeholder="A word, a posture, a commitment."></textarea></div>
+      <button class="btn-gold" type="button" id="ci-dash-btn">📊 Open dashboard</button>
     </div>`;
+
+  hkRows(Math.max(1, hk.rows || 4));
+  el("ci-hk-add").onclick = () => { hkRows(1, true); saveDraft(); };
+  el("ci-dash-btn").onclick = () => { closeCheckin(); openDashboard(); };
+
+  el("ci-form").querySelectorAll(".cprepbtn").forEach((b) => {
+    b.onclick = () => {
+      const inp = el("ci-form").querySelector(`.cprep[name="prep_${CSS.escape(b.dataset.for)}"]`);
+      inp.hidden = false;
+      b.remove();
+      inp.focus();
+    };
+  });
 
   el("ci-form").querySelectorAll(".cirb").forEach((b) => {
     b.onclick = () => rateRule(b.dataset.rule, b.dataset.val);
@@ -1088,11 +1135,34 @@ function ciTally() {
   el("ci-total").textContent = `${v.length}/${S.checkin.ruleCount}`;
 }
 
+/** Append n housekeeping rows (or render the initial set). */
+function hkRows(n, append) {
+  const box = el("ci-hk");
+  if (!append) box.innerHTML = "";
+  const start = box.children.length;
+  for (let i = 0; i < n; i++) {
+    const row = document.createElement("div");
+    row.className = "cihk";
+    row.innerHTML = `<div class="n">☐</div>
+      <input type="text" name="hk_${start + i}" placeholder="e.g. Renew car registration"/>`;
+    box.appendChild(row);
+  }
+  if (append) box.lastElementChild.querySelector("input").focus();
+}
+
 function collectCheckin() {
   const data = { weekOf: CI.week, savedAt: new Date().toISOString() };
   el("ci-form").querySelectorAll("textarea[name], input[name]").forEach((f) => {
-    if (f.value.trim()) data[f.name] = f.value.trim();
+    if (!f.value.trim()) return;
+    if (f.name.startsWith("hk_") || f.name.startsWith("prep_")) return;  // collected below
+    data[f.name] = f.value.trim();
   });
+  data.housekeeping = [...el("ci-hk").querySelectorAll("input")]
+    .map((i) => i.value.trim()).filter(Boolean);
+  data.meetingPrep = [...el("ci-form").querySelectorAll(".cprep")]
+    .filter((i) => i.value.trim())
+    .map((i) => ({ todo: i.value.trim(), event: i.dataset.event,
+                   dow: i.dataset.dow, time: i.dataset.time }));
   data.ratings = { ...CI.ratings };
   data.goalProgress = { ...CI.goals };
   return data;
@@ -1113,6 +1183,19 @@ function restoreDraft() {
   if (!d) return;
   el("ci-form").querySelectorAll("textarea[name], input[name]").forEach((f) => {
     if (d[f.name]) f.value = d[f.name];
+  });
+  (d.housekeeping || []).forEach((t, i) => {
+    if (i >= el("ci-hk").children.length) hkRows(1, true);
+    el("ci-hk").children[i].querySelector("input").value = t;
+  });
+  (d.meetingPrep || []).forEach((p) => {
+    const inp = [...el("ci-form").querySelectorAll(".cprep")]
+      .find((i) => i.dataset.event === p.event && i.dataset.time === p.time);
+    if (!inp) return;                       // meeting moved or was cancelled
+    inp.value = p.todo;
+    inp.hidden = false;
+    const btn = el("ci-form").querySelector(`.cprepbtn[data-for="${CSS.escape(inp.name.slice(5))}"]`);
+    if (btn) btn.remove();
   });
   Object.entries(d.ratings || {}).forEach(([k, v]) => rateRule(k.slice(1), v));
   Object.entries(d.goalProgress || {}).forEach(([k, v]) => {
@@ -1186,11 +1269,103 @@ async function saveCheckin() {
   }
 }
 
+// ── check-in dashboard: the longitudinal view ───────────
+function openDashboard() {
+  const c = S.checkin, d = c.dashboard;
+  const body = el("cd-body");
+  if (!d || !d.weeks.length) {
+    body.innerHTML = `<div class="ppempty">No check-ins logged yet. The dashboard
+      fills in as you complete them.</div>`;
+  } else {
+    const weeks = d.weeks.filter((w) => w.pct !== null);
+    const peak = Math.max(...weeks.map((w) => w.pct), 1);
+    const delta = d.trendDelta;
+    const cats = Object.entries(d.categorySeries);
+
+    body.innerHTML = `
+      <div class="cdstats">
+        ${cdTile(d.average + "%", "Average score", band(d.average))}
+        ${cdTile(String(c.totalCheckins), "Weeks logged")}
+        ${cdTile(c.streak + "w", "Current streak")}
+        ${cdTile(String(d.totalWins), "Wins captured")}
+        ${delta === null || delta === undefined ? ""
+          : cdTile((delta > 0 ? "+" : "") + delta, "Trend (2nd half vs 1st)",
+                   delta > 0 ? "good" : delta < 0 ? "low" : "mid")}
+      </div>
+
+      <div class="cdsec">
+        <h4>Score by week</h4>
+        <div class="cdbars">
+          ${weeks.map((w) => `
+            <div class="cdbar" title="${esc(w.weekOf)} · ${w.pct}% · ${w.good}G/${w.moderate}M/${w.needs}N">
+              <div class="cdbv">${w.pct}</div>
+              <div class="cdbt"><div class="${band(w.pct)}" style="height:${Math.max(3, Math.round(100 * w.pct / peak))}%"></div></div>
+              <div class="cdbl">${esc(shortWeek(w.weekOf))}</div>
+            </div>`).join("")}
+        </div>
+        ${d.best && d.worst ? `<div class="smallnote" style="margin-top:10px">
+          Best week <b>${esc(shortWeek(d.best.weekOf))}</b> at ${d.best.pct}% ·
+          toughest <b>${esc(shortWeek(d.worst.weekOf))}</b> at ${d.worst.pct}%.</div>` : ""}
+      </div>
+
+      <div class="cdsec">
+        <h4>Life areas over time</h4>
+        <div class="cdcats">
+          ${cats.map(([name, series]) => {
+            const vals = series.filter((s) => s.pct !== null);
+            const avg = vals.length ? Math.round(vals.reduce((a, s) => a + s.pct, 0) / vals.length) : null;
+            return `<div class="cdcat">
+              <div class="cdch"><span>${esc(name)}</span><b class="${band(avg)}">${avg === null ? "—" : avg + "%"}</b></div>
+              <div class="cdspark">${vals.map((s) => `
+                <i class="${band(s.pct)}" style="height:${Math.max(8, s.pct)}%"
+                   title="${esc(s.weekOf)} · ${s.pct}%"></i>`).join("")}</div>
+            </div>`;
+          }).join("")}
+        </div>
+      </div>
+
+      <div class="cdsplit">
+        <div class="cdsec">
+          <h4>Where you're strongest</h4>
+          ${d.strongest.map((r) => cdRule(r)).join("")}
+        </div>
+        <div class="cdsec">
+          <h4>Where you keep slipping</h4>
+          ${d.struggling.map((r) => cdRule(r)).join("")}
+        </div>
+      </div>`;
+  }
+  el("cd-overlay").classList.add("show");
+  document.body.style.overflow = "hidden";
+}
+
+const cdTile = (v, k, tone) =>
+  `<div class="cdtile"><div class="v ${tone || ""}">${esc(v)}</div><div class="k">${esc(k)}</div></div>`;
+
+const cdRule = (r) => `
+  <div class="cdrule">
+    <div class="cdrh"><span class="n">${r.num}</span><b>${esc(r.short)}</b>
+      <span class="pct ${band(r.pct)}">${r.pct}%</span></div>
+    <div class="t">${esc(r.text)}</div>
+    <div class="cdmix">
+      <span class="g">${r.good} good</span><span class="m">${r.moderate} moderate</span>
+      <span class="w">${r.needs} needs work</span><span class="o">of ${r.rated} rated</span>
+    </div>
+  </div>`;
+
+function closeDashboard() {
+  el("cd-overlay").classList.remove("show");
+  document.body.style.overflow = "";
+}
+
 function initCheckin() {
   el("ci-close").onclick = closeCheckin;
   el("ci-save").onclick = saveCheckin;
+  el("cd-close").onclick = closeDashboard;
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && el("ci-overlay").classList.contains("show")) closeCheckin();
+    if (e.key !== "Escape") return;
+    if (el("cd-overlay").classList.contains("show")) closeDashboard();
+    else if (el("ci-overlay").classList.contains("show")) closeCheckin();
   });
 }
 
