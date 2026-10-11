@@ -1265,93 +1265,430 @@ async function saveCheckin() {
   }
 }
 
-// ── check-in dashboard: the longitudinal view ───────────
-function openDashboard() {
-  const c = S.checkin, d = c.dashboard;
-  const body = el("cd-body");
-  if (!d || !d.weeks.length) {
-    body.innerHTML = `<div class="ppempty">No check-ins logged yet. The dashboard
-      fills in as you complete them.</div>`;
-  } else {
-    const weeks = d.weeks.filter((w) => w.pct !== null);
-    const peak = Math.max(...weeks.map((w) => w.pct), 1);
-    const delta = d.trendDelta;
-    const cats = Object.entries(d.categorySeries);
+// ── check-in dashboard: personal intelligence ───────────
+// Four views over the same published state. Everything here is read-only and
+// derived from build_dashboard() in the publisher; the check-in form and its
+// submission path are untouched by any of it.
+const DASH = { tab: "overview", range: "all", hidden: new Set() };
 
-    body.innerHTML = `
-      <div class="cdstats">
-        ${cdTile(d.average + "%", "Average score", band(d.average))}
-        ${cdTile(String(c.totalCheckins), "Weeks logged")}
-        ${cdTile(c.streak + "w", "Current streak")}
-        ${cdTile(String(d.totalWins), "Wins captured")}
-        ${delta === null || delta === undefined ? ""
-          : cdTile((delta > 0 ? "+" : "") + delta, "Trend (2nd half vs 1st)",
-                   delta > 0 ? "good" : delta < 0 ? "low" : "mid")}
-      </div>
+const RANGES = [["4", "4 weeks"], ["12", "12 weeks"], ["ytd", "Year to date"], ["all", "All time"]];
 
-      <div class="cdsec">
-        <h4>Score by week</h4>
-        <div class="cdbars">
-          ${weeks.map((w) => `
-            <div class="cdbar" title="${esc(w.weekOf)} · ${w.pct}% · ${w.good}G/${w.moderate}M/${w.needs}N">
-              <div class="cdbv">${w.pct}</div>
-              <div class="cdbt"><div class="${band(w.pct)}" style="height:${Math.max(3, Math.round(100 * w.pct / peak))}%"></div></div>
-              <div class="cdbl">${esc(shortWeek(w.weekOf))}</div>
-            </div>`).join("")}
-        </div>
-        ${d.best && d.worst ? `<div class="smallnote" style="margin-top:10px">
-          Best week <b>${esc(shortWeek(d.best.weekOf))}</b> at ${d.best.pct}% ·
-          toughest <b>${esc(shortWeek(d.worst.weekOf))}</b> at ${d.worst.pct}%.</div>` : ""}
-      </div>
-
-      <div class="cdsec">
-        <h4>Life areas over time</h4>
-        <div class="cdcats">
-          ${cats.map(([name, series]) => {
-            const vals = series.filter((s) => s.pct !== null);
-            const avg = vals.length ? Math.round(vals.reduce((a, s) => a + s.pct, 0) / vals.length) : null;
-            return `<div class="cdcat">
-              <div class="cdch"><span>${esc(name)}</span><b class="${band(avg)}">${avg === null ? "—" : avg + "%"}</b></div>
-              <div class="cdspark">${vals.map((s) => `
-                <i class="${band(s.pct)}" style="height:${Math.max(8, s.pct)}%"
-                   title="${esc(s.weekOf)} · ${s.pct}%"></i>`).join("")}</div>
-            </div>`;
-          }).join("")}
-        </div>
-      </div>
-
-      <div class="cdsplit">
-        <div class="cdsec">
-          <h4>Where you're strongest</h4>
-          ${d.strongest.map((r) => cdRule(r)).join("")}
-        </div>
-        <div class="cdsec">
-          <h4>Where you keep slipping</h4>
-          ${d.struggling.map((r) => cdRule(r)).join("")}
-        </div>
-      </div>`;
+function dashWeeks() {
+  const all = (S.checkin.dashboard || {}).weeks || [];
+  if (DASH.range === "all") return all;
+  if (DASH.range === "ytd") {
+    const y = String(new Date().getFullYear());
+    return all.filter((w) => w.weekOf.startsWith(y));
   }
-  el("cd-overlay").classList.add("show");
-  document.body.style.overflow = "hidden";
+  return all.slice(-Number(DASH.range));
 }
 
-const cdTile = (v, k, tone) =>
-  `<div class="cdtile"><div class="v ${tone || ""}">${esc(v)}</div><div class="k">${esc(k)}</div></div>`;
+const avgOf = (xs) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
+const pctOf = (ws) => avgOf(ws.map((w) => w.pct).filter((p) => p !== null));
 
-const cdRule = (r) => `
-  <div class="cdrule">
-    <div class="cdrh"><span class="n">${r.num}</span><b>${esc(r.short)}</b>
-      <span class="pct ${band(r.pct)}">${r.pct}%</span></div>
-    <div class="t">${esc(r.text)}</div>
-    <div class="cdmix">
-      <span class="g">${r.good} good</span><span class="m">${r.moderate} moderate</span>
-      <span class="w">${r.needs} needs work</span><span class="o">of ${r.rated} rated</span>
-    </div>
-  </div>`;
+function openDashboard() {
+  el("cd-overlay").classList.add("show");
+  document.body.style.overflow = "hidden";
+  renderDashShell();
+}
 
 function closeDashboard() {
   el("cd-overlay").classList.remove("show");
   document.body.style.overflow = "";
+}
+
+function renderDashShell() {
+  const tabs = [["overview", "◈ Overview"], ["goals", "🎯 My Goals"],
+                ["analytics", "📈 Life Analytics"], ["reports", "📁 Weekly Reports"]];
+  el("cd-tabs").innerHTML = tabs.map(([k, label]) =>
+    `<button class="cdtab ${DASH.tab === k ? "on" : ""}" data-tab="${k}">${label}</button>`).join("");
+  el("cd-tabs").querySelectorAll(".cdtab").forEach((b) => {
+    b.onclick = () => { DASH.tab = b.dataset.tab; renderDashShell(); };
+  });
+  renderDashTab();
+}
+
+function renderDashTab() {
+  const d = S.checkin.dashboard;
+  const body = el("cd-body");
+  if (!d || !d.weeks.length) {
+    body.innerHTML = `<div class="ppempty">No check-ins logged yet. Every view here
+      fills in from your weekly entries.</div>`;
+    return;
+  }
+  body.innerHTML = { overview: dashOverview, goals: dashGoals,
+                     analytics: dashAnalytics, reports: dashReports }[DASH.tab](d);
+  wireDashTab(d);
+  requestAnimationFrame(() => body.querySelectorAll("[data-grow]").forEach((n) => {
+    n.style.width = n.dataset.grow;
+  }));
+}
+
+// ── A. overview ─────────────────────────────────────────
+function dashOverview(d) {
+  const c = S.checkin, g = d.goalSummary, i = d.intelligence;
+  const last = d.weeks[d.weeks.length - 1], prev = d.weeks[d.weeks.length - 2];
+  const delta = last && prev && last.pct !== null && prev.pct !== null ? last.pct - prev.pct : null;
+  const scored = d.weeks.filter((w) => w.pct !== null);
+
+  return `
+    <div class="cdstats">
+      ${cdTile(d.average + "%", "Life performance", band(d.average),
+               `average of ${scored.length} weeks`)}
+      ${cdTile(last.pct === null ? "—" : last.pct + "%", "Latest week", band(last.pct),
+               delta === null ? shortWeek(last.weekOf)
+                 : `${delta > 0 ? "▲" : delta < 0 ? "▼" : "—"} ${Math.abs(delta)} pts vs prior`)}
+      ${cdTile(String(c.totalCheckins), "Weeks logged", "", `streak ${c.streak}w`)}
+      ${cdTile(String(d.totalWins), "Wins captured", "", "across all weeks")}
+      ${cdTile(String(g.achieved), "Goals achieved", "good", `${g.datedCompletions} dated in-period`)}
+      ${cdTile(String(g.stalled), "Goals stalled", g.stalled ? "low" : "good",
+               `${g.active} active · ${g.notStarted} not started`)}
+    </div>
+
+    <div class="cdintel">
+      <div class="cdih">
+        <span class="ic">◈</span>
+        <div><b>Chloe's Personal Intelligence</b>
+          <em>Read from ${scored.length} scored weeks and ${d.goals.length} tracked goals.
+            Every line shows the numbers behind it.</em></div>
+      </div>
+      <div class="cdigrid">
+        ${intelCard("What's going well", "good", i.good)}
+        ${intelCard("What needs attention", "warn", i.attention)}
+        ${intelCard("Patterns Chloe is noticing", "pat", i.patterns)}
+        ${intelCard("Recommended this week", "act", i.actions)}
+      </div>
+    </div>
+
+    <div class="cdsec">
+      <h4>Trajectory <span class="cdsub">${esc(shortWeek(d.weeks[0].weekOf))} → ${esc(shortWeek(last.weekOf))}</span></h4>
+      ${lineChart(scored.map((w) => ({ x: w.weekOf, y: w.pct })), 100)}
+      ${d.best && d.worst ? `<div class="smallnote" style="margin-top:8px">
+        Best <b>${esc(shortWeek(d.best.weekOf))}</b> ${d.best.pct}% ·
+        toughest <b>${esc(shortWeek(d.worst.weekOf))}</b> ${d.worst.pct}%
+        ${d.trendDelta === null ? "" : `· second half ${d.trendDelta > 0 ? "+" : ""}${d.trendDelta} pts on the first`}</div>` : ""}
+    </div>`;
+}
+
+const intelCard = (title, tone, items) => `
+  <div class="cdi ${tone}">
+    <h5>${esc(title)}</h5>
+    ${items.length ? items.map((x) => `
+      <div class="cdirow"><div class="t">${esc(x.text)}</div>
+        <div class="ev">${esc(x.evidence)}</div></div>`).join("")
+      : `<div class="cdirow"><div class="t">Nothing to report from the data yet.</div></div>`}
+  </div>`;
+
+// ── B. goals ────────────────────────────────────────────
+const GOAL_STATUS = {
+  achieved: ["Achieved", "good"], active: ["Actively progressing", "good"],
+  stalled: ["Stalled", "low"], urgent: ["Urgent", "low"],
+  not_started: ["Not yet started", "mid"],
+};
+const STATUS_ORDER = ["urgent", "stalled", "active", "not_started", "achieved"];
+
+function dashGoals(d) {
+  const goals = d.goals;
+  if (!goals.length) {
+    return `<div class="ppempty">Goal history comes from the Basecamp weeks. None found
+      in the current store.</div>`;
+  }
+  const needs = goals.filter((g) => g.status === "stalled" || g.status === "urgent")
+                     .sort((a, b) => b.weeksInState - a.weeksInState);
+  const byCat = {};
+  goals.forEach((g) => (byCat[g.category] ||= []).push(g));
+
+  return `
+    <div class="cdstats">
+      ${cdTile(String(d.goalSummary.achieved), "Achieved", "good")}
+      ${cdTile(String(d.goalSummary.active), "Actively progressing", "good")}
+      ${cdTile(String(d.goalSummary.stalled), "Stalled", "low")}
+      ${cdTile(String(d.goalSummary.notStarted), "Not yet started", "mid")}
+    </div>
+
+    ${needs.length ? `
+    <div class="cdsec cdneeds">
+      <h4>⚠ Goals that need your attention</h4>
+      <div class="smallnote" style="margin-bottom:12px">Marked as your next move but
+        unchanged for ${window.__stallWeeks || 7}+ weeks running.</div>
+      ${needs.map((g) => `
+        <div class="cdneed" data-goal="${esc(g.text)}">
+          <div class="w">${g.weeksInState}w</div>
+          <div class="b"><div class="n">${esc(g.text)}</div>
+            <div class="m">${esc(g.category)} · next-up since ${esc(shortWeek(g.firstActiveWeek || g.firstSeen))}</div></div>
+          <span class="cdchev">›</span>
+        </div>`).join("")}
+    </div>` : ""}
+
+    ${Object.keys(byCat).sort().map((cat) => {
+      const list = byCat[cat].slice().sort(
+        (a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status));
+      const done = list.filter((g) => g.status === "achieved").length;
+      return `
+      <div class="cdsec">
+        <h4>${esc(cat)} <span class="cdsub">${done}/${list.length} achieved</span></h4>
+        <div class="cdbarline"><div data-grow="${Math.round(100 * done / list.length)}%"></div></div>
+        <div class="cdgoals">
+          ${list.map((g) => {
+            const [label, tone] = GOAL_STATUS[g.status];
+            return `<div class="cdgoal ${g.status}" data-goal="${esc(g.text)}">
+              <div class="cdgh">
+                <span class="dotx ${tone}"></span>
+                <span class="nm">${esc(g.text)}</span>
+                <span class="st ${tone}">${label}</span>
+              </div>
+              <div class="cdgm">${goalMeta(g)}</div>
+              ${goalTrack(g)}
+            </div>`;
+          }).join("")}
+        </div>
+      </div>`;
+    }).join("")}`;
+}
+
+function goalMeta(g) {
+  if (g.status === "achieved") {
+    return g.datedCompletion
+      ? `Completed week of ${esc(shortWeek(g.datedCompletion))}`
+      : `Completed before tracking began — no date in the data`;
+  }
+  if (g.status === "not_started") return `Listed ${g.seenWeeks} weeks, never marked active`;
+  return `${g.weeksInState} weeks in this state · tracked ${g.seenWeeks} weeks`;
+}
+
+/** Roadmap strip: one cell per tracked week, coloured by that week's state. */
+function goalTrack(g) {
+  if (!g.history || g.history.length < 2) return "";
+  const tone = { completed: "good", active: "mid", urgent: "low", backlog: "" };
+  return `<div class="cdtrack" title="State each tracked week">
+    ${g.history.map((h) => `<i class="${tone[h.state] || ""}"
+      title="${esc(h.weekOf)} · ${esc(h.state)}"></i>`).join("")}</div>`;
+}
+
+// ── C. analytics ────────────────────────────────────────
+function dashAnalytics(d) {
+  const weeks = dashWeeks();
+  const names = d.categoryNames;
+  const shown = names.filter((n) => !DASH.hidden.has(n));
+  const inRange = new Set(weeks.map((w) => w.weekOf));
+  const heat = d.heatmap.filter((r) => inRange.has(r.weekOf));
+
+  const series = shown.map((n) => ({
+    name: n,
+    points: (d.categorySeries[n] || []).filter((p) => inRange.has(p.weekOf) && p.pct !== null)
+      .map((p) => ({ x: p.weekOf, y: p.pct })),
+  }));
+
+  // period comparison: this range's second half against its first
+  const sc = weeks.map((w) => w.pct).filter((p) => p !== null);
+  const half = Math.floor(sc.length / 2);
+  const cmp = sc.length >= 4
+    ? { a: avgOf(sc.slice(0, half)), b: avgOf(sc.slice(half)) } : null;
+
+  return `
+    <div class="cdfilters">
+      <span class="cdfl">Range</span>
+      ${RANGES.map(([k, l]) => `<button class="cdchip ${DASH.range === k ? "on" : ""}"
+        data-range="${k}">${l}</button>`).join("")}
+      <span class="cdcount">${weeks.length} week${weeks.length === 1 ? "" : "s"}</span>
+    </div>
+
+    <div class="cdstats">
+      ${cdTile((pctOf(weeks) ?? "—") + "%", "Average this range", band(pctOf(weeks)))}
+      ${cmp ? cdTile((cmp.b - cmp.a > 0 ? "+" : "") + (cmp.b - cmp.a), "Second half vs first",
+                     cmp.b - cmp.a > 0 ? "good" : cmp.b - cmp.a < 0 ? "low" : "mid",
+                     `${cmp.a}% → ${cmp.b}%`) : ""}
+      ${cdTile(String(weeks.reduce((a, w) => a + w.wins, 0)), "Wins in range")}
+    </div>
+
+    <div class="cdsec">
+      <h4>Life balance heatmap</h4>
+      <div class="smallnote" style="margin-bottom:10px">Green good · amber average ·
+        red needs work — the same meaning your Basecamp highlights carried.</div>
+      <div class="cdheatwrap">
+        <table class="cdheat">
+          <thead><tr><th></th>${names.map((n) => `<th>${esc(n)}</th>`).join("")}</tr></thead>
+          <tbody>
+            ${heat.slice().reverse().map((r) => `<tr>
+              <th>${esc(shortWeek(r.weekOf))}</th>
+              ${r.cells.map((v, i) => `<td class="${band(v)}" data-week="${esc(r.weekOf)}"
+                title="${esc(names[i])} · ${esc(r.weekOf)} · ${v === null ? "not rated" : v + "%"}">
+                ${v === null ? "" : v}</td>`).join("")}
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="cdsec">
+      <h4>Category trends</h4>
+      <div class="cdlegend">
+        ${names.map((n, i) => `<button class="cdleg ${DASH.hidden.has(n) ? "off" : ""}"
+          data-cat="${esc(n)}"><i style="background:${catColor(i)}"></i>${esc(n)}</button>`).join("")}
+      </div>
+      ${series.some((s) => s.points.length) ? multiLineChart(series, names)
+        : `<div class="ppempty">No category data in this range.</div>`}
+    </div>
+
+    <div class="cdsec">
+      <h4>Every rule, ranked</h4>
+      <div class="cdrank">
+        ${d.ruleRanking.map((r) => `
+          <div class="cdrr">
+            <span class="n">${r.num}</span>
+            <span class="s">${esc(r.short)}</span>
+            <span class="t">${esc(r.text)}</span>
+            <span class="mixbar">
+              <i class="g" style="flex:${r.good}"></i><i class="m" style="flex:${r.moderate}"></i><i class="w" style="flex:${r.needs}"></i>
+            </span>
+            <span class="p ${band(r.pct)}">${r.pct}%</span>
+          </div>`).join("")}
+      </div>
+    </div>`;
+}
+
+const CAT_COLORS = ["#4FD1B5", "#E9B44C", "#9A8CF0", "#F0766B", "#5AA0FF", "#7ED992"];
+const catColor = (i) => CAT_COLORS[i % CAT_COLORS.length];
+
+// ── D. weekly reports ───────────────────────────────────
+function dashReports(d) {
+  return `
+    <div class="smallnote" style="margin-bottom:14px">${d.reports.length} weekly reports,
+      newest first. Click any week to open it.</div>
+    ${d.reports.map((r, i) => `
+      <div class="cdrep" data-rep="${i}">
+        <div class="cdreph">
+          <div class="wk">${esc(shortWeek(r.weekOf))}<em>${esc(r.weekOf)}</em></div>
+          <div class="sc ${band(r.pct)}">${r.pct === null ? "—" : r.pct + "%"}</div>
+          <div class="mx"><span class="g">${r.good}</span><span class="m">${r.moderate}</span><span class="w">${r.needs}</span></div>
+          <div class="sm">${r.wins.length} win${r.wins.length === 1 ? "" : "s"}${
+            r.housekeeping.length ? ` · ${r.housekeeping.length} to-do${r.housekeeping.length === 1 ? "" : "s"}` : ""}</div>
+          <span class="src ${r.source === "basecamp" ? "bc" : ""}">${r.source === "basecamp" ? "Basecamp" : "Sky Command"}</span>
+          <span class="cdchev">›</span>
+        </div>
+        <div class="cdrepb" hidden>
+          ${r.wins.length ? `<div class="cdrs"><h6>Biggest wins</h6><ul>${
+            r.wins.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>` : ""}
+          ${r.lessons ? `<div class="cdrs"><h6>Lessons learned</h6><p>${esc(r.lessons)}</p></div>` : ""}
+          ${r.housekeeping.length ? `<div class="cdrs"><h6>Housekeeping</h6><ul>${
+            r.housekeeping.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : ""}
+          ${r.meetingPrep.length ? `<div class="cdrs"><h6>Meeting prep</h6><ul>${
+            r.meetingPrep.map((p) => `<li>${esc(p.todo)} <em>— ${esc(p.event || "")} ${esc(p.dow || "")} ${esc(p.time || "")}</em></li>`).join("")}</ul></div>` : ""}
+          <div class="cdrs"><h6>Ratings by area</h6>
+            <div class="cdcats">${Object.entries(r.categories).map(([k, v]) => `
+              <div class="cdcat"><div class="cdch"><span>${esc(k)}</span>
+                <b class="${band(v)}">${v === null ? "—" : v + "%"}</b></div></div>`).join("")}</div>
+          </div>
+          ${Object.keys(r.legacy || {}).length ? `<div class="cdrs">
+            <h6>Also recorded <em>(fields since retired from the form)</em></h6><ul>${
+            Object.entries(r.legacy).map(([k, v]) =>
+              `<li><em>${esc(k.replace(/([A-Z])/g, " $1").toLowerCase())}:</em> ${esc(v)}</li>`).join("")}</ul></div>` : ""}
+          ${r.extras.unmappedRated.length ? `<div class="cdrs"><h6>Also rated that week
+            <em>(historical items with no field in the current form)</em></h6><ul>${
+            r.extras.unmappedRated.map((u) => `<li><span class="dotx ${
+              u.value === "good" ? "good" : u.value === "moderate" ? "mid" : "low"}"></span>${esc(u.text)}</li>`).join("")}</ul></div>` : ""}
+          ${r.extras.dayPlans.length ? `<div class="cdrs"><h6>Week plan as written</h6><ul>${
+            r.extras.dayPlans.map((p) => `<li>${esc(p)}</li>`).join("")}</ul></div>` : ""}
+          ${r.sourceUrl ? `<a class="qc" href="${esc(r.sourceUrl)}" target="_blank"
+            rel="noopener noreferrer">Open original in Basecamp ↗</a>` : ""}
+        </div>
+      </div>`).join("")}`;
+}
+
+// ── shared chart + tile helpers ─────────────────────────
+const cdTile = (v, k, tone, sub) =>
+  `<div class="cdtile"><div class="v ${tone || ""}">${esc(v)}</div>
+    <div class="k">${esc(k)}</div>${sub ? `<div class="sb">${esc(sub)}</div>` : ""}</div>`;
+
+/** Single-series area+line chart, plain SVG so there's no CDN dependency. */
+function lineChart(points, maxY) {
+  if (points.length < 2) return `<div class="ppempty">Needs at least two weeks.</div>`;
+  const W = 760, H = 180, P = 26;
+  const x = (i) => P + i * (W - P * 2) / (points.length - 1);
+  const y = (v) => H - P - (v / maxY) * (H - P * 2);
+  const line = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.y).toFixed(1)}`).join("");
+  return `<div class="cdchart"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+      aria-label="Weekly score trajectory">
+    ${[0, 25, 50, 75, 100].map((g) => `<line x1="${P}" x2="${W - P}" y1="${y(g)}" y2="${y(g)}"
+      stroke="var(--line)" stroke-width="1"/>`).join("")}
+    <path d="${line}L${x(points.length - 1)},${H - P}L${x(0)},${H - P}Z" fill="rgba(79,209,181,.10)"/>
+    <path d="${line}" fill="none" stroke="var(--teal)" stroke-width="2.5"
+      stroke-linejoin="round" stroke-linecap="round"/>
+    ${points.map((p, i) => `<circle cx="${x(i)}" cy="${y(p.y)}" r="3.5" fill="var(--teal)">
+      <title>${esc(p.x)} · ${p.y}%</title></circle>`).join("")}
+  </svg></div>`;
+}
+
+function multiLineChart(series, allNames) {
+  const live = series.filter((s) => s.points.length > 1);
+  if (!live.length) return `<div class="ppempty">Toggle a category on to chart it.</div>`;
+  const W = 760, H = 230, P = 26;
+  const labels = [...new Set(live.flatMap((s) => s.points.map((p) => p.x)))].sort();
+  const x = (wk) => P + labels.indexOf(wk) * (W - P * 2) / Math.max(1, labels.length - 1);
+  const y = (v) => H - P - (v / 100) * (H - P * 2);
+  return `<div class="cdchart"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+      aria-label="Category trends over time">
+    ${[0, 25, 50, 75, 100].map((g) => `<line x1="${P}" x2="${W - P}" y1="${y(g)}" y2="${y(g)}"
+      stroke="var(--line)" stroke-width="1"/>`).join("")}
+    ${live.map((s) => {
+      const col = catColor(allNames.indexOf(s.name));
+      const dpath = s.points.map((p, i) => `${i ? "L" : "M"}${x(p.x).toFixed(1)},${y(p.y).toFixed(1)}`).join("");
+      return `<path d="${dpath}" fill="none" stroke="${col}" stroke-width="2.2"
+        stroke-linejoin="round" stroke-linecap="round" opacity="0.92"/>
+        ${s.points.map((p) => `<circle cx="${x(p.x)}" cy="${y(p.y)}" r="3" fill="${col}">
+          <title>${esc(s.name)} · ${esc(p.x)} · ${p.y}%</title></circle>`).join("")}`;
+    }).join("")}
+  </svg></div>`;
+}
+
+// ── interactions ────────────────────────────────────────
+function wireDashTab(d) {
+  const body = el("cd-body");
+  body.querySelectorAll("[data-range]").forEach((b) => {
+    b.onclick = () => { DASH.range = b.dataset.range; renderDashTab(); };
+  });
+  body.querySelectorAll("[data-cat]").forEach((b) => {
+    b.onclick = () => {
+      const n = b.dataset.cat;
+      DASH.hidden.has(n) ? DASH.hidden.delete(n) : DASH.hidden.add(n);
+      renderDashTab();
+    };
+  });
+  body.querySelectorAll(".cdreph").forEach((h) => {
+    h.onclick = () => {
+      const panel = h.parentElement.querySelector(".cdrepb");
+      panel.hidden = !panel.hidden;
+      h.parentElement.classList.toggle("open", !panel.hidden);
+    };
+  });
+  // a heatmap cell jumps to that week's report
+  body.querySelectorAll(".cdheat td[data-week]").forEach((td) => {
+    td.onclick = () => openReport(td.dataset.week);
+  });
+  // "needs attention" jumps to the goal in its category block
+  body.querySelectorAll(".cdneed[data-goal]").forEach((n) => {
+    n.onclick = () => {
+      const t = [...body.querySelectorAll(`.cdgoal[data-goal]`)]
+        .find((g) => g.dataset.goal === n.dataset.goal && g !== n);
+      if (!t) return;
+      t.scrollIntoView({ behavior: "smooth", block: "center" });
+      t.classList.add("flash");
+      setTimeout(() => t.classList.remove("flash"), 1400);
+    };
+  });
+}
+
+function openReport(weekOf) {
+  DASH.tab = "reports";
+  renderDashShell();
+  const d = S.checkin.dashboard;
+  const i = d.reports.findIndex((r) => r.weekOf === weekOf);
+  if (i < 0) return;
+  const card = el("cd-body").querySelector(`.cdrep[data-rep="${i}"]`);
+  if (!card) return;
+  card.querySelector(".cdrepb").hidden = false;
+  card.classList.add("open");
+  card.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function initCheckin() {
