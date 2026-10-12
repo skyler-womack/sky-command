@@ -1,20 +1,15 @@
-// SKY COMMAND — render + live-state + live-chat layer.
+// SKY COMMAND — render + live-state layer.
 //
 // Boot: state.json (dev) → state.enc (AES-256-GCM, passphrase unlock).
-// Chat mode  → OpenAI chat completions with Chloe's live-state system prompt.
-// Build mode → model writes a Codex task brief → user confirms → brief is
-//              encrypted with the session key and committed to the GitHub
-//              repo (briefs/pending/) → Mac publisher ingests → hourly
-//              in-app task moves it into CodeX/framework/queue/incoming.
+// The hero is Chloe's Executive Priorities, ranked by the publisher
+// (sky_priorities.py). Nothing in this file calls an AI model. Writes back
+// (check-ins, priority status, agent diagnostics) are encrypted with the
+// session key and committed to the GitHub repo; the Mac publisher ingests them.
 // Re-polls state every 5 minutes.
 
 let S = null;
-let chatWired = false;
-let mode = "chat";               // "chat" | "build"
-let history = [];                 // chat-mode conversation history
-let sessionKeyBits = null;        // raw AES key after unlock (for briefs)
+let sessionKeyBits = null;        // raw AES key after unlock (for repo writes)
 let devMode = false;              // plaintext state.json — key is a placeholder
-let pendingBrief = null;
 
 const POLL_MS = 5 * 60 * 1000;
 const KEY_CACHE = "skycmd_key_v1";
@@ -510,12 +505,7 @@ function renderBriefing() {
   }
 }
 
-// ── focus / finance / agents ────────────────────────────
-function renderFocus() {
-  el("focus-list").innerHTML = S.goals.focus
-    .map((f) => `<li class="${f.tone}">${esc(f.text)}</li>`).join("");
-}
-
+// ── finance / agents ────────────────────────────────────
 const money = (n) => (typeof n === "number"
   ? (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString() : "—");
 
@@ -1607,11 +1597,51 @@ const CAT_COLORS = ["#4FD1B5", "#E9B44C", "#9A8CF0", "#F0766B", "#5AA0FF", "#7ED
 const catColor = (i) => CAT_COLORS[i % CAT_COLORS.length];
 
 // ── D. weekly reports ───────────────────────────────────
+/** Reports grouped into month folders: the current month stays open as a
+ *  plain list, earlier months collapse into folders you click to open. */
 function dashReports(d) {
-  return `
-    <div class="smallnote" style="margin-bottom:14px">${d.reports.length} weekly reports,
-      newest first. Click any week to open it.</div>
-    ${d.reports.map((r, i) => `
+  const nowMonth = isoDate(new Date()).slice(0, 7);
+  const months = [];
+  d.reports.forEach((r, i) => {                     // reports arrive newest-first
+    const m = r.weekOf.slice(0, 7);
+    if (!months.length || months[months.length - 1].m !== m) months.push({ m, rows: [] });
+    months[months.length - 1].rows.push({ r, i });
+  });
+
+  const c = S.checkin;
+  const due = c.status === "due" || c.status === "overdue";
+  const banner = due ? `
+    <div class="cddue ${esc(c.status)}">
+      <div class="ic">${c.status === "overdue" ? "!" : "●"}</div>
+      <div class="b">
+        <div class="t">This week's check-in is still ${c.status === "overdue" ? "overdue" : "due"}</div>
+        <div class="s">${esc(c.statusNote)}</div>
+      </div>
+      <button class="btn-gold" id="cd-start">Start check-in</button>
+    </div>` : "";
+
+  return banner + months.map(({ m, rows }) => {
+    const open = m === nowMonth;
+    const scored = rows.map(({ r }) => r.pct).filter((p) => p !== null);
+    const avg = scored.length ? Math.round(scored.reduce((a, b) => a + b, 0) / scored.length) : null;
+    const [y, mm] = m.split("-");
+    return `
+      <div class="cdfold ${open ? "open" : ""}" data-month="${esc(m)}">
+        <div class="cdfoldh">
+          <span class="ar">▸</span>
+          <span class="ic">${open ? "📂" : "📁"}</span>
+          <span class="nm">${MONTHS[Number(mm) - 1]} <em>${esc(y)}</em></span>
+          <span class="ct">${rows.length} report${rows.length === 1 ? "" : "s"}</span>
+          <span class="av ${band(avg)}">${avg === null ? "—" : avg + "%"}</span>
+        </div>
+        <div class="cdfoldb"${open ? "" : " hidden"}>
+          ${rows.map(({ r, i }) => repCard(r, i)).join("")}
+        </div>
+      </div>`;
+  }).join("");
+}
+
+const repCard = (r, i) => `
       <div class="cdrep" data-rep="${i}">
         <div class="cdreph">
           <div class="wk">${esc(shortWeek(r.weekOf))}<em>${esc(r.weekOf)}</em></div>
@@ -1648,8 +1678,7 @@ function dashReports(d) {
           ${r.sourceUrl ? `<a class="qc" href="${esc(r.sourceUrl)}" target="_blank"
             rel="noopener noreferrer">Open original in Basecamp ↗</a>` : ""}
         </div>
-      </div>`).join("")}`;
-}
+      </div>`;
 
 // ── shared chart + tile helpers ─────────────────────────
 const cdTile = (v, k, tone, sub) =>
@@ -1717,6 +1746,17 @@ function wireDashTab(d) {
       h.parentElement.classList.toggle("open", !panel.hidden);
     };
   });
+  body.querySelectorAll(".cdfoldh").forEach((h) => {
+    h.onclick = () => {
+      const fold = h.parentElement;
+      const panel = fold.querySelector(".cdfoldb");
+      panel.hidden = !panel.hidden;
+      fold.classList.toggle("open", !panel.hidden);
+      h.querySelector(".ic").textContent = panel.hidden ? "📁" : "📂";
+    };
+  });
+  const start = body.querySelector("#cd-start");
+  if (start) start.onclick = () => { closeDashboard(); openCheckin(); };
   // a calendar cell jumps to that week's report
   body.querySelectorAll(".cdmg td[data-week]").forEach((td) => {
     td.onclick = () => openReport(td.dataset.week);
@@ -1742,6 +1782,12 @@ function openReport(weekOf) {
   if (i < 0) return;
   const card = el("cd-body").querySelector(`.cdrep[data-rep="${i}"]`);
   if (!card) return;
+  const fold = card.closest(".cdfold");        // the month may be collapsed
+  if (fold && !fold.classList.contains("open")) {
+    fold.querySelector(".cdfoldb").hidden = false;
+    fold.classList.add("open");
+    fold.querySelector(".cdfoldh .ic").textContent = "📂";
+  }
   card.querySelector(".cdrepb").hidden = false;
   card.classList.add("open");
   card.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1773,214 +1819,319 @@ function renderConnections() {
     </div>`).join("");
 }
 
-// ── chat console ────────────────────────────────────────
-const thread = () => el("thread");
+// ── Chloe's Executive Priorities ────────────────────────
+// Ranked by the publisher (sky_priorities.py) from real feeds; nothing here
+// calls a model. Status changes file through the same encrypted repo path as
+// check-ins. They show immediately through a local overlay, which clears once
+// the publisher reports the action as applied.
+const PR = { view: "today", open: null, showAll: false, notes: {}, flash: null };
+const PR_VIEW_KEY = "skycmd_prio_view_v1";
+const PR_OVERLAY_KEY = "skycmd_prio_overlay_v1";
+const PR_SHOW = 5;
+const PR_OVERLAY_MAX_MS = 48 * 3600 * 1000;
+const PR_WORDS = ["", "one thing", "two things", "three things", "four things", "five things"];
+const PR_KIND = {
+  now: { label: "Act now", cls: "now" },
+  strategic: { label: "Strategic", cls: "strategic" },
+  delegate: { label: "Delegable", cls: "delegate" },
+};
+const PR_STATUS = {
+  new: "New", updated: "Updated", in_progress: "In progress", reviewed: "Reviewed",
+};
 
-function addMsg(who, text, cls) {
-  const div = document.createElement("div");
-  div.className = "msg " + who + (cls ? " " + cls : "");
-  const stamp = new Date().toLocaleTimeString("en-US", {
-    hour: "numeric", minute: "2-digit",
+function prOverlay() {
+  try { return JSON.parse(localStorage.getItem(PR_OVERLAY_KEY)) || {}; } catch { return {}; }
+}
+function prSaveOverlay(o) {
+  try { localStorage.setItem(PR_OVERLAY_KEY, JSON.stringify(o)); } catch { /* private mode */ }
+}
+
+/** Newest local action per priority that the publisher hasn't applied yet. */
+function prPending() {
+  const applied = new Set((S.priorities && S.priorities.appliedActions) || []);
+  const o = prOverlay();
+  const now = Date.now();
+  let changed = false;
+  for (const [k, a] of Object.entries(o)) {
+    if (applied.has(k) || now - Date.parse(a.at) > PR_OVERLAY_MAX_MS) { delete o[k]; changed = true; }
+  }
+  if (changed) prSaveOverlay(o);
+  const latest = {};
+  for (const [actionId, a] of Object.entries(o)) {
+    if (!latest[a.id] || a.at > latest[a.id].at) latest[a.id] = { ...a, actionId };
+  }
+  return latest;
+}
+
+function prApply(c, pend) {
+  const a = pend[c.id];
+  if (!a) return c;
+  if (a.action === "snooze") return Date.parse(a.until) > Date.now() ? null : c;
+  // reopen restores what the publisher said, unless that was the state being undone
+  const status = a.action === "reopen"
+    ? (["reviewed", "in_progress"].includes(c.status) ? "attention" : c.status)
+    : { reviewed: "reviewed", in_progress: "in_progress" }[a.action];
+  return { ...c, status, local: true };
+}
+
+function prHeadline(items, span) {
+  if (!items.length) return `Nothing on the board needs you ${span}. Enjoy the room.`;
+  const n = Math.min(PR_SHOW, items.filter((c) => c.status !== "reviewed").length);
+  if (!n) return `You’ve reviewed everything I flagged ${span}.`;
+  return `Skyler, here ${n === 1 ? "is" : "are"} the ${PR_WORDS[n]} I think deserve your attention ${span}.`;
+}
+
+const prTime = (iso) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+const prDay = (iso) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+const prWhen = (iso) => new Date(iso).toLocaleString("en-US",
+  { weekday: "short", hour: "numeric", minute: "2-digit" });
+
+function prHistory(c) {
+  const bits = [];
+  if (c.firstSeen) bits.push(`First flagged ${prDay(c.firstSeen)}`);
+  const verbs = { reviewed: "Reviewed", in_progress: "Marked in progress", snooze: "Snoozed",
+                  reopen: "Reopened", "snooze ended": "Back from snooze", "came back": "Came back" };
+  (c.history || []).forEach((h) => { if (verbs[h.action]) bits.push(`${verbs[h.action]} ${prDay(h.at)}`); });
+  return bits.join(" · ");
+}
+
+function prCard(c, i) {
+  const kind = PR_KIND[c.kind] || PR_KIND.now;
+  const open = PR.open === c.id;
+  const bodyId = `pr-body-${i}`;
+  const status = PR_STATUS[c.status];
+  const note = PR.notes[c.id] || (c.local ? (devMode ? "Dev mode: saved on this device only."
+    : "Saved. The board confirms it on its next refresh.") : c.statusNote);
+  const chips = [
+    ...(c.sources || []).map((s) => `<span class="prchip">${esc(s)}</span>`),
+    c.deadlineLabel ? `<span class="prchip due">${esc(c.deadlineLabel)}</span>` : "",
+    status ? `<span class="prchip st-${esc(c.status)}">${status}</span>` : "",
+  ].join("");
+
+  let take = "";
+  if (c.agentId) {
+    take = `<button type="button" class="prbtn primary" data-act="agent">${esc(c.link ? c.link.label : "Open agent")}</button>`;
+  } else if (c.link && /^https:\/\//.test(c.link.url || "")) {
+    take = `<a class="prbtn primary" href="${esc(c.link.url)}" target="_blank" rel="noopener">${esc(c.link.label)} ↗</a>`;
+  }
+  const reviewed = c.status === "reviewed";
+  const working = c.status === "in_progress";
+
+  return `
+    <li class="prcard k-${kind.cls} s-${esc(c.status || "attention")}${open ? " open" : ""}" data-id="${esc(c.id)}">
+      <button type="button" class="prhead" aria-expanded="${open}" aria-controls="${bodyId}">
+        <span class="prrank mono">${String(i + 1).padStart(2, "0")}</span>
+        <span class="prmain">
+          <span class="prtitle">${esc(c.title)}</span>
+          <span class="prwhy">${esc(c.why)}</span>
+          <span class="prnext"><b>Chloe recommends</b> ${esc(c.action)}</span>
+          <span class="prchips">${chips}</span>
+        </span>
+        <span class="prdot" title="${kind.label}"><span class="sr-only">${kind.label}</span></span>
+      </button>
+      <div class="prbody" id="${bodyId}"${open ? "" : " hidden"}>
+        ${(c.details && c.details.length) ? `
+          <div class="prsub">What’s behind it</div>
+          <ul class="prdetails">${c.details.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>` : ""}
+        <div class="prhist">${esc(prHistory(c))}</div>
+        <div class="practs">
+          ${take}
+          <button type="button" class="prbtn" data-act="${reviewed ? "reopen" : "reviewed"}">${reviewed ? "Undo reviewed" : "Mark reviewed"}</button>
+          <button type="button" class="prbtn" data-act="${working ? "reopen" : "in_progress"}">${working ? "Not started" : "I’m on it"}</button>
+          <details class="prsnooze">
+            <summary class="prbtn">Remind me later</summary>
+            <div class="prsnoozemenu">
+              <button type="button" class="prbtn" data-act="snooze" data-when="tomorrow">Tomorrow, 8 AM</button>
+              <button type="button" class="prbtn" data-act="snooze" data-when="3d">In 3 days</button>
+              <button type="button" class="prbtn" data-act="snooze" data-when="monday">Next Monday</button>
+            </div>
+          </details>
+        </div>
+        ${note ? `<div class="prnote" role="status">${esc(note)}</div>` : ""}
+      </div>
+    </li>`;
+}
+
+function prSnoozeUntil(when) {
+  const d = new Date();
+  if (when === "3d") { d.setDate(d.getDate() + 3); d.setHours(8, 0, 0, 0); return d; }
+  if (when === "monday") { d.setDate(d.getDate() + (((8 - d.getDay()) % 7) || 7)); d.setHours(8, 0, 0, 0); return d; }
+  d.setDate(d.getDate() + 1); d.setHours(8, 0, 0, 0);
+  return d;
+}
+
+function renderPriorities() {
+  const P = S.priorities;
+  document.querySelectorAll(".prtab").forEach((t) => {
+    const on = t.dataset.view === PR.view;
+    t.classList.toggle("active", on);
+    t.setAttribute("aria-selected", String(on));
   });
-  div.innerHTML =
-    `<div class="who">${who === "chloe" ? "Chloe" : "Sky"}` +
-    `<span class="ts">${stamp}</span></div>${esc(text)}`;
-  thread().appendChild(div);
-  thread().scrollTop = thread().scrollHeight;
-  return div;
-}
-
-function typingBubble() {
-  const t = document.createElement("div");
-  t.className = "msg chloe";
-  t.innerHTML = `<div class="who">Chloe</div><span class="typing"><i></i><i></i><i></i></span>`;
-  thread().appendChild(t);
-  thread().scrollTop = thread().scrollHeight;
-  return t;
-}
-
-async function llm(messages) {
-  window.__orbBusy++;
-  el("core-status").textContent = "· thinking";
-  try {
-    return await llmCall(messages);
-  } finally {
-    window.__orbBusy--;
-    if (!window.__orbBusy) el("core-status").textContent = "· online";
+  if (!P || P.error) {
+    el("pr-headline").textContent = P ? "Priorities couldn’t be ranked this cycle."
+      : "Priorities appear after the next publish.";
+    el("pr-insight").textContent = P ? "The rest of the board is current. The next refresh retries." : "";
+    el("pr-meta").textContent = "";
+    el("pr-list").innerHTML = "";
+    el("pr-foot").innerHTML = "";
+    return;
   }
-}
 
-async function llmCall(messages) {
-  if (S.chat.provider === "anthropic") {
-    const system = messages.filter((m) => m.role === "system")
-      .map((m) => m.content).join("\n");
-    const rest = messages.filter((m) => m.role !== "system");
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": S.chat.apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({ model: S.chat.model, max_tokens: 1024, system, messages: rest }),
-    });
-    if (!r.ok) throw new Error("API " + r.status);
-    const d = await r.json();
-    return d.content[0].text.trim();
+  const pend = prPending();
+  const span = PR.view === "today" ? "today" : "this week";
+  const items = (P[PR.view] || []).map((c) => prApply(c, pend)).filter(Boolean)
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => (a.c.status === "reviewed") - (b.c.status === "reviewed") || a.i - b.i)
+    .map((x) => x.c);
+  const shown = PR.showAll ? items : items.slice(0, PR_SHOW);
+
+  el("pr-headline").textContent = prHeadline(items, span);
+  el("pr-insight").textContent = PR.view === "week" ? (P.insight || "") : "";
+  el("pr-insight").hidden = !(PR.view === "week" && P.insight);
+
+  const srcs = P.sources || [];
+  const down = srcs.filter((s) => !s.fresh);
+  el("pr-meta").innerHTML =
+    `<span>Refreshed ${esc(prTime(P.generatedAt))}</span>` +
+    `<span title="${esc(srcs.map((s) => `${s.name}: ${s.note}`).join("\n"))}">` +
+    `${srcs.length - down.length} of ${srcs.length} sources live</span>` +
+    down.map((s) => `<span class="warn">${esc(s.name)} ${esc(s.note)}</span>`).join("") +
+    (PR.flash ? `<span class="prflash" role="status">${esc(PR.flash.text)}
+      <button type="button" class="prlink" id="pr-undo">Undo</button></span>` : "");
+
+  el("pr-list").innerHTML = shown.map(prCard).join("");
+
+  const foot = [];
+  if (items.length > PR_SHOW) {
+    foot.push(`<button type="button" class="prmore" id="pr-more">${PR.showAll
+      ? "Show top five only" : `Show ${items.length - PR_SHOW} more`}</button>`);
   }
-  const r = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer " + S.chat.apiKey,
-    },
-    body: JSON.stringify({ model: S.chat.model, messages, temperature: 0.4 }),
+  if (PR.view === "week" && P.weekExcludedFromToday) {
+    foot.push(`<span>${P.weekExcludedFromToday} of today’s priorities aren’t repeated here.</span>`);
+  }
+  const snoozed = (P.snoozed || []).filter((s) => !(pend[s.id] && pend[s.id].action === "reopen"));
+  Object.values(pend).forEach((a) => {
+    if (a.action === "snooze" && Date.parse(a.until) > Date.now() && !snoozed.some((s) => s.id === a.id)) {
+      snoozed.push({ id: a.id, title: a.title, until: a.until });
+    }
   });
-  if (!r.ok) throw new Error("API " + r.status);
-  const d = await r.json();
-  return d.choices[0].message.content.trim();
-}
-
-async function chatTurn(text) {
-  addMsg("you", text);
-  const t = typingBubble();
-  try {
-    history.push({ role: "user", content: text });
-    history = history.slice(-S.chat.maxHistory);
-    const reply = await llm([
-      { role: "system", content: S.chat.system }, ...history]);
-    history.push({ role: "assistant", content: reply });
-    t.remove();
-    addMsg("chloe", reply);
-  } catch (e) {
-    t.remove();
-    addMsg("chloe", "Live chat is unreachable right now (" + e.message +
-      "). The board itself is still current — try again in a moment.");
+  if (snoozed.length) {
+    foot.push(`<details class="prfold"><summary>${snoozed.length} snoozed</summary><ul>${
+      snoozed.map((s) => `<li>${esc(s.title)} <span class="dim">until ${esc(prWhen(s.until))}</span>
+        <button type="button" class="prlink" data-wake="${esc(s.id)}" data-title="${esc(s.title)}">Bring back</button></li>`).join("")
+    }</ul></details>`);
   }
-}
-
-async function buildTurn(text) {
-  addMsg("you", text);
-  const t = typingBubble();
-  try {
-    const raw = await llm([
-      { role: "system", content: S.chat.buildSystem },
-      { role: "user", content: text }]);
-    const brief = JSON.parse(raw.replace(/^```json?|```$/g, "").trim());
-    brief.dispatched_at = new Date().toISOString();
-    pendingBrief = brief;
-    t.remove();
-    const div = document.createElement("div");
-    div.className = "msg chloe brief-preview";
-    div.innerHTML =
-      `<div class="who">Chloe · task brief</div>
-       <b>${esc(brief.title || brief.task_id)}</b>
-       <span class="gpill" style="margin-left:8px">${esc(brief.agent)} · ${esc(brief.permission_level)}</span>
-       <pre>${esc(JSON.stringify(brief, null, 2))}</pre>
-       <div class="briefbtns">
-         <button class="send teal" id="brief-go">⚡ Queue it</button>
-         <button class="send ghost" id="brief-no">Cancel</button>
-       </div>`;
-    thread().appendChild(div);
-    thread().scrollTop = thread().scrollHeight;
-    div.querySelector("#brief-go").onclick = () => dispatchBrief(div);
-    div.querySelector("#brief-no").onclick = () => {
-      pendingBrief = null;
-      div.remove();
-      addMsg("chloe", "Cancelled — nothing was queued.");
-    };
-  } catch (e) {
-    t.remove();
-    addMsg("chloe", "Couldn't draft that brief (" + e.message + "). Rephrase and try again.");
+  if ((P.resolved || []).length) {
+    foot.push(`<details class="prfold"><summary>${P.resolved.length} resolved recently</summary><ul>${
+      P.resolved.map((r) => `<li>✓ ${esc(r.title)} <span class="dim">${esc(prDay(r.at))}</span></li>`).join("")
+    }</ul></details>`);
   }
+  foot.push(`<span class="prlegend"><i class="now"></i>Act now<i class="strategic"></i>Strategic<i class="delegate"></i>Delegable</span>`);
+  el("pr-foot").innerHTML = foot.join("");
 }
 
-async function dispatchBrief(previewDiv) {
-  if (!pendingBrief) return;
-  const brief = pendingBrief;
-  pendingBrief = null;
-  previewDiv.querySelector(".briefbtns").innerHTML =
-    `<span class="tag">Dispatching…</span>`;
+/** File a status change: local overlay first, then the encrypted repo commit. */
+async function prAct(c, action, until) {
+  const a = {
+    actionId: crypto.randomUUID(), id: c.id, title: c.title, action,
+    at: new Date().toISOString(), ...(until ? { until: until.toISOString() } : {}),
+  };
+  const o = prOverlay();
+  o[a.actionId] = a;
+  prSaveOverlay(o);
+  delete PR.notes[c.id];
+  if (action === "snooze" && PR.open === c.id) PR.open = null;
+  const said = { reviewed: "Marked reviewed", snooze: "Snoozed", in_progress: "Marked in progress" }[action];
+  clearTimeout(PR.flashTimer);
+  PR.flash = said ? { text: `${said}: ${c.title.length > 60 ? c.title.slice(0, 58) + "…" : c.title}`, item: c } : null;
+  if (PR.flash) PR.flashTimer = setTimeout(() => { PR.flash = null; renderPriorities(); }, 9000);
+  renderPriorities();
+
+  if (devMode) return;
+  const fail = (msg) => {
+    const cur = prOverlay();
+    delete cur[a.actionId];
+    prSaveOverlay(cur);
+    PR.notes[c.id] = msg;
+    PR.open = c.id;
+    renderPriorities();
+  };
+  if (!S.chat || !S.chat.ghToken || !S.chat.ghRepo) {
+    fail("Couldn’t save: this state has no repo credentials.");
+    return;
+  }
   try {
-    const name = (brief.task_id || "brief_" + Date.now()) + ".json.enc";
-    const enc = await encryptForRepo(brief);
+    const enc = await encryptForRepo(a);
     const r = await fetch(
-      `https://api.github.com/repos/${S.chat.ghRepo}/contents/briefs/pending/${name}`, {
+      `https://api.github.com/repos/${S.chat.ghRepo}/contents/priorities/pending/${Date.now()}_${a.actionId}.json.enc`, {
         method: "PUT",
-        headers: {
-          Authorization: "Bearer " + S.chat.ghToken,
-          Accept: "application/vnd.github+json",
-        },
+        headers: { Authorization: "Bearer " + S.chat.ghToken, Accept: "application/vnd.github+json" },
         body: JSON.stringify({
-          message: "build-mode brief: " + (brief.task_id || name),
+          message: `priority: ${action} ${c.id}`,
           content: btoa(unescape(encodeURIComponent(enc))),
         }),
       });
     if (!r.ok) throw new Error("GitHub " + r.status);
-    previewDiv.querySelector(".briefbtns").innerHTML =
-      `<span class="tag" style="color:var(--teal)">✓ Queued</span>`;
-    addMsg("chloe", `Dispatched. “${brief.title || brief.task_id}” is en route to the ` +
-      `${brief.agent} agent — the Mac ingests it within ~30 min and it lands in the ` +
-      `Codex queue on the next hourly sync. Permission level: ${brief.permission_level}.`);
   } catch (e) {
-    previewDiv.querySelector(".briefbtns").innerHTML =
-      `<span class="tag" style="color:var(--coral)">✗ Dispatch failed — ${esc(e.message)}</span>`;
+    fail(`Couldn’t save (${e.message}). Nothing changed. Try again.`);
   }
 }
 
-function setMode(m) {
-  mode = m;
-  const isBuild = m === "build";
-  el("tab-chat").classList.toggle("active", !isBuild);
-  el("tab-build").classList.toggle("active", isBuild);
-  el("tab-build").classList.toggle("build", isBuild);
-  el("tab-chat").setAttribute("aria-selected", String(!isBuild));
-  el("tab-build").setAttribute("aria-selected", String(isBuild));
-  document.querySelector(".console").classList.toggle("buildmode", isBuild);
-  el("mode-hint").textContent = isBuild
-    ? "describe a task → Chloe writes the brief → you approve → Codex queue"
-    : "ask about anything on the board";
-  el("chatinput").placeholder = isBuild
-    ? "Describe the task to dispatch — e.g. “have research pull 990s for the 12 hot leads”"
-    : "Talk to Chloe — live numbers, agents, goals…";
-  el("send-btn").textContent = isBuild ? "Draft brief" : "Send";
-  el("send-btn").style.background = isBuild ? "var(--teal)" : "var(--gold)";
-}
+function initPriorities() {
+  try {
+    const v = localStorage.getItem(PR_VIEW_KEY);
+    if (v === "today" || v === "week") PR.view = v;
+  } catch { /* private mode */ }
 
-function initChat() {
-  if (thread().children.length === 0) {
-    (S.chat.seed || []).forEach((m) => addMsg(m.who, m.text));
-    if (!S.chat.apiKey) {
-      addMsg("chloe", "Note: no chat API key found in state — live chat is offline this cycle.");
+  document.querySelectorAll(".prtab").forEach((t) => {
+    t.onclick = () => {
+      PR.view = t.dataset.view;
+      PR.showAll = false;
+      try { localStorage.setItem(PR_VIEW_KEY, PR.view); } catch { /* private mode */ }
+      renderPriorities();
+    };
+  });
+
+  el("pr-list").addEventListener("click", (e) => {
+    const li = e.target.closest(".prcard");
+    if (!li) return;
+    const P = S.priorities || {};
+    const c = (P[PR.view] || []).find((x) => x.id === li.dataset.id);
+    if (!c) return;
+    if (e.target.closest(".prhead")) {
+      PR.open = PR.open === c.id ? null : c.id;
+      renderPriorities();
+      const head = el("pr-list").querySelector(`.prcard[data-id="${CSS.escape(c.id)}"] .prhead`);
+      if (head) head.focus();
+      return;
     }
-  }
-  if (chatWired) return;
-  chatWired = true;
-
-  el("tab-chat").onclick = () => setMode("chat");
-  el("tab-build").onclick = () => setMode("build");
-
-  const quick = ["Inbox status", "How's my pipeline?", "Any agent problems?", "How am I tracking on goals?"];
-  el("quick").innerHTML = quick
-    .map((q) => `<button type="button" class="qc">${esc(q)}</button>`).join("");
-  el("quick").addEventListener("click", (e) => {
-    const btn = e.target.closest(".qc");
+    const btn = e.target.closest("[data-act]");
     if (!btn) return;
-    setMode("chat");
-    chatTurn(btn.textContent);
+    const act = btn.dataset.act;
+    if (act === "agent") {
+      const a = (S.agents || []).find((x) => x.id === c.agentId);
+      if (a) openAgentDrawer(a);
+      return;
+    }
+    prAct(c, act, act === "snooze" ? prSnoozeUntil(btn.dataset.when) : null);
   });
 
-  el("chatform").addEventListener("submit", (e) => {
-    e.preventDefault();
-    const input = el("chatinput");
-    const v = input.value.trim();
-    if (!v) return;
-    input.value = "";
-    (mode === "build" ? buildTurn : chatTurn)(v);
+  el("pr-meta").addEventListener("click", (e) => {
+    if (e.target.id !== "pr-undo" || !PR.flash) return;
+    const c = PR.flash.item;
+    PR.flash = null;
+    prAct(c, "reopen");
   });
 
-  el("bf-close").onclick = () => el("bf-overlay").classList.remove("show");
+  el("pr-foot").addEventListener("click", (e) => {
+    if (e.target.id === "pr-more") {
+      PR.showAll = !PR.showAll;
+      renderPriorities();
+      return;
+    }
+    const wake = e.target.closest("[data-wake]");
+    if (wake) prAct({ id: wake.dataset.wake, title: wake.dataset.title }, "reopen");
+  });
 }
 
 // ── ambient system line ─────────────────────────────────
@@ -1992,7 +2143,8 @@ function sysLines() {
     lines.push(alerts ? `${alerts} AGENT${alerts === 1 ? "" : "S"} NEED ATTENTION` : "ALL AGENTS GREEN");
     const fresh = S.briefing.feeds.filter((f) => f.fresh).length;
     lines.push(`FEEDS · ${fresh}/${S.briefing.feeds.length} LIVE`);
-    if (S.goals.focus[0]) lines.push("FOCUS · " + S.goals.focus[0].text.slice(0, 40).toUpperCase());
+    const top = S.priorities && (S.priorities.today || [])[0];
+    if (top) lines.push("PRIORITY · " + top.title.slice(0, 44).toUpperCase());
   }
   return lines;
 }
@@ -2019,13 +2171,12 @@ function renderAll() {
   renderHorizon();
   renderInbox();
   renderCleanup();
+  renderPriorities();
   renderBriefing();
-  renderFocus();
   renderFinance();
   renderAgents();
   renderCheckin();
   renderConnections();
-  initChat();
 
   requestAnimationFrame(() =>
     setTimeout(() => {
@@ -2043,6 +2194,8 @@ async function boot() {
   }
   initPrivacy();   // restore the last privacy state BEFORE the first paint
   initCheckin();
+  initPriorities();
+  el("bf-close").onclick = () => el("bf-overlay").classList.remove("show");
   renderAll();
   initSysline();
 

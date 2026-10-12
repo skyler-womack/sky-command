@@ -32,26 +32,27 @@
       </div>
     </header>
 
-    <!-- Chloe command console — full-width hero -->
-    <section class="console hero" aria-label="Chloe command console">
+    <!-- Chloe's Executive Priorities — full-width hero -->
+    <section class="console hero" aria-label="Chloe's Executive Priorities">
       <div class="halo"></div>
       <div class="core">
         <canvas id="orb-main" class="orbcanvas" aria-label="Chloe neural core"></canvas>
         <div class="corename">Chloe <em id="core-status">· online</em></div>
         <div class="corerole">AI Executive Assistant to Skyler Womack</div>
       </div>
-      <div class="conv">
-        <div class="modetabs" role="tablist">
-          <button class="mtab active" id="tab-chat" role="tab" aria-selected="true">💬 Chat</button>
-          <button class="mtab" id="tab-build" role="tab" aria-selected="false">🛠 Build</button>
-          <span class="modehint" id="mode-hint">ask about anything on the board</span>
+      <div class="prio" id="prio">
+        <div class="prtop">
+          <span class="prkicker">Chloe’s Executive Priorities</span>
+          <div class="prtoggle" role="tablist" aria-label="Priority horizon">
+            <button type="button" role="tab" class="prtab active" data-view="today" aria-selected="true">Today</button>
+            <button type="button" role="tab" class="prtab" data-view="week" aria-selected="false">This week</button>
+          </div>
         </div>
-        <div class="thread" id="thread"></div>
-        <div class="quick" id="quick"></div>
-        <form class="inputrow" id="chatform">
-          <input id="chatinput" type="text" placeholder="Talk to Chloe — live numbers, agents, goals…" autocomplete="off" />
-          <button class="send" id="send-btn" type="submit">Send</button>
-        </form>
+        <h2 class="prheadline" id="pr-headline"></h2>
+        <p class="prinsight" id="pr-insight"></p>
+        <div class="prmeta" id="pr-meta"></div>
+        <ol class="prlist" id="pr-list" role="list"></ol>
+        <div class="prfoot" id="pr-foot"></div>
       </div>
     </section>
 
@@ -75,18 +76,10 @@
       <div class="card bfcard" id="card-billing"></div>
     </section>
 
-    <!-- inbox manager + focus (moved down) -->
+    <!-- inbox manager + background maintenance -->
     <div class="grid two">
       <section class="card primary" id="card-inbox" aria-label="Sky Inbox Manager"></section>
       <div class="stackcol">
-        <section class="card focuscard" id="card-focus" aria-label="Chloe's recommended focus">
-          <div class="chead">
-            <div class="ic" style="background:var(--goldsoft)">🎯</div>
-            <span class="ctitle">Chloe’s Recommended Focus<span class="fsub"> — this week, for Skyler</span></span>
-          </div>
-          <ul class="focus" id="focus-list"></ul>
-          <div class="focusfoot">Chloe’s read across finance, calendar, inbox &amp; pipeline</div>
-        </section>
         <!-- background maintenance, deliberately low-prominence -->
         <section class="card bgtask" id="card-cleanup" aria-label="Inbox batch cleanup"></section>
       </div>
@@ -116,7 +109,7 @@
     </div>
 
     <footer class="foot">
-      SKY COMMAND · ENCRYPTED STATE · AUTO-REFRESH 30 MIN · BUILD MODE DISPATCHES TO CODEX QUEUE
+      SKY COMMAND · ENCRYPTED STATE · PRIORITIES RE-RANKED EVERY 30 MIN · NO AI API CALLS
     </footer>
   </div>
 
