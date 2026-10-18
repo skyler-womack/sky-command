@@ -1960,6 +1960,31 @@ function prSnoozeUntil(when) {
   return d;
 }
 
+/** Wins band: only what the publisher could prove. Hidden when a window has none. */
+function renderWins() {
+  const box = el("pr-wins");
+  const all = S.priorities && S.priorities.wins;
+  const W = all && all[PR.view];
+  if (!W || !W.items || !W.items.length) { box.hidden = true; box.innerHTML = ""; return; }
+  const kicker = PR.view === "today" ? "Wins today" : "Wins · past 7 days";
+  const rows = W.items.map((w) => {
+    const head = `<span class="prwmark" aria-hidden="true">✓</span>
+      <span class="prwt">${esc(w.title)}</span>${w.detail ? `<span class="prwd">${esc(w.detail)}</span>` : ""}`;
+    return (w.details && w.details.length)
+      ? `<li class="prw k-${esc(w.kind)}"><details><summary>${head}<span class="prwmore">${
+          w.kind === "tasks" ? "see what" : "see more"}</span></summary>
+          <ul class="prwsub">${w.details.map((d) => `<li>${esc(d)}</li>`).join("")}</ul></details></li>`
+      : `<li class="prw k-${esc(w.kind)}"><div class="prwrow">${head}</div></li>`;
+  }).join("");
+  const conv = W.items.some((w) => ["client", "accepted", "proposal"].includes(w.kind));
+  const since = all.crmSince && Date.now() - Date.parse(all.crmSince) < 30 * 864e5
+    ? `<p class="prwnote">New clients and sent proposals are counted as they change in the CRM, tracking since ${esc(prDay(all.crmSince + "T12:00:00"))}.</p>` : "";
+  box.innerHTML = `<div class="prwk">${kicker}</div>
+    <p class="prwh">${esc(W.headline)}</p>
+    <ul class="prwl">${rows}</ul>${conv ? "" : since}`;
+  box.hidden = false;
+}
+
 function renderPriorities() {
   const P = S.priorities;
   document.querySelectorAll(".prtab").forEach((t) => {
@@ -1972,6 +1997,7 @@ function renderPriorities() {
       : "Priorities appear after the next publish.";
     el("pr-insight").textContent = P ? "The rest of the board is current. The next refresh retries." : "";
     el("pr-meta").textContent = "";
+    el("pr-wins").hidden = true;
     el("pr-list").innerHTML = "";
     el("pr-foot").innerHTML = "";
     return;
@@ -1988,6 +2014,7 @@ function renderPriorities() {
   el("pr-headline").textContent = prHeadline(items, span);
   el("pr-insight").textContent = PR.view === "week" ? (P.insight || "") : "";
   el("pr-insight").hidden = !(PR.view === "week" && P.insight);
+  renderWins();
 
   const srcs = P.sources || [];
   const down = srcs.filter((s) => !s.fresh);
@@ -1996,6 +2023,7 @@ function renderPriorities() {
     `<span title="${esc(srcs.map((s) => `${s.name}: ${s.note}`).join("\n"))}">` +
     `${srcs.length - down.length} of ${srcs.length} sources live</span>` +
     down.map((s) => `<span class="warn">${esc(s.name)} ${esc(s.note)}</span>`).join("") +
+    (((P.wins && P.wins.missing) || []).map((m) => `<span class="warn">Wins: ${esc(m)} unavailable</span>`).join("")) +
     (PR.flash ? `<span class="prflash" role="status">${esc(PR.flash.text)}
       <button type="button" class="prlink" id="pr-undo">Undo</button></span>` : "");
 
