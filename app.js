@@ -307,8 +307,142 @@ function syncChip() {
   el("sync-dot").className = "dot " + (mins < 90 ? "ok" : "gold");
 }
 
-// ── horizon + gates ─────────────────────────────────────
+// ── road to a million: time x money ─────────────────────
+// The publisher (sky_roadmap.py) places each goal in a time window and tags it
+// funded-now (limited by Sky's bandwidth) or revenue-gated. Revenue-gated dates
+// are estimates from recent recurring-revenue pace and are always labeled so.
+const RM = { sel: null, wired: false };
+const rmK = (n) => (n >= 1000 ? "$" + String(Math.round(n / 100) / 10).replace(/\.0$/, "") + "K" : "$" + Math.round(n));
+const rmPace = (n) => (n < 0 ? "−" : "+") + "$" + Math.abs(n).toLocaleString("en-US") + "/mo";
+const rmDate = (iso) => fromISO(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+const RM_KIND = { hire: "Hire", training: "Training", campaign: "Campaign", project: "Project",
+                  ops: "Operations", launch: "Launch", destination: "Destination", goal: "Goal" };
+const RM_STATUS = { affordable: ["Affordable now", "ok"], on_track: ["On track", "ok"], possible: ["Only if the recent pace holds", "warn"],
+                    behind: ["Behind pace", "bad"] };
+
+function rmFind(R, id) {
+  for (const w of R.windows) for (const g of w.goals) if (g.id === id) return { g, w };
+  return null;
+}
+
+function rmTags(g) {
+  const t = [];
+  if (g.funding === "now") t.push(`<span class="rmtag fund">Funded now</span>`, `<span class="rmtag time">Your time</span>`);
+  else if (g.after) t.push(`<span class="rmtag after">After $1M</span>`);
+  else if (g.unlockSet) t.push(`<span class="rmtag need">Needs ${rmK(g.unlock)}/mo</span>`);
+  else t.push(`<span class="rmtag unset">Unlock level not set</span>`);
+  const st = RM_STATUS[g.status];
+  if (st) t.push(`<span class="rmtag st-${st[1]}">${st[0]}</span>`);
+  return t.join("");
+}
+
+function rmMeter(R) {
+  const n = R.next, p = R.pace;
+  const pace = (v) => (v === null || v === undefined ? "not enough data" : rmPace(v));
+  const body = n
+    ? `<div class="rmmtop"><span class="rmmk">Money</span>
+         <span>You're at <b>${esc(R.base.label)}</b>. Next unlock <b>${rmK(n.unlock)}/mo</b>: ${esc(n.opens.join(", "))}.</span>
+         <span class="rmmgap">${rmK(n.gap)}/mo to go</span></div>
+       <div class="rmbar" role="img" aria-label="${n.pct}% of the way to ${rmK(n.unlock)} a month">
+         <div class="rmfill" style="width:${n.pct}%"></div></div>
+       <div class="rmmsub">At the 90-day pace (${pace(p.base)}): <b>${esc(n.est)}</b> ·
+         if the last 30 days hold (${pace(p.recent)}): <b>${esc(n.estFast)}</b></div>`
+    : `<div class="rmmtop"><span class="rmmk">Money</span><span>No revenue-gated goal sits above ${esc(R.base.label)} right now.</span></div>`;
+  const unset = R.unset && R.unset.length
+    ? `<div class="rmunset">${R.unset.length} goal${R.unset.length === 1 ? "" : "s"} still need an unlock level before the numbers can say if they're on pace: ${
+        R.unset.map(esc).join("; ")}.</div>` : "";
+  const re = (p.retainers || []).map((r) => `${esc(r.month)} ${rmK(r.amount)}`).join(", ");
+  return `<div class="rmmeter">${body}${unset}
+    <details class="rmhow"><summary>How these dates are estimated</summary>
+      <p>${esc(R.caveat)}</p>
+      <p class="rmdim">New recurring revenue in the CRM: ${p.latest !== null && p.latest !== undefined ? rmK(p.latest) : "n/a"} now,
+        from ${p.points} daily snapshots (${esc(p.from || "")} to ${esc(p.to || "")}). Billing Buddy retainers: ${re || "n/a"}.</p>
+    </details></div>`;
+}
+
+function rmCard(g, sel) {
+  const open = sel === g.id;
+  return `<button type="button" class="rmcard f-${esc(g.funding)} s-${esc(g.status)}${open ? " sel" : ""}"
+      data-id="${esc(g.id)}" aria-expanded="${open}" aria-controls="rm-detail">
+      <span class="rmct2">${esc(g.title)}</span>
+      <span class="rmwhen${g.whenKind === "estimated" ? " est" : ""}">${esc(g.when)}</span>
+      <span class="rmtags">${rmTags(g)}</span></button>`;
+}
+
+function rmDetail(R, found) {
+  if (!found) return `<div class="rmhint">Select a goal to see what it needs, and when the numbers say you can have it.</div>`;
+  const { g, w } = found, p = R.pace, rows = [];
+  rows.push(["When", g.when + (g.whenKind === "estimated" ? " (estimate)" : "")]);
+  if (g.funding === "now") {
+    rows.push(["Money", "Funded with the money you have today. Nothing here waits on revenue."]);
+    rows.push(["Your time", `Uses one of your ${w.load.cap} bandwidth slots. ${w.load.used} of ${w.load.cap} are taken in ${w.label}.${
+      w.load.over ? " That is over your limit." : ""}`]);
+  } else if (g.after) {
+    rows.push(["Money", "Waits on the $1M agency. It has no separate number."]);
+  } else if (g.unlockSet) {
+    rows.push(["Money", g.gap
+      ? `Needs ${rmK(g.unlock)}/mo recurring. You're at ${R.base.label}, so ${rmK(g.gap)}/mo to go.`
+      : `Needs ${rmK(g.unlock)}/mo recurring, and you're already there.`]);
+    if (p.base !== null || p.recent !== null) {
+      rows.push(["Estimate", `At the 90-day pace (${p.base === null ? "n/a" : rmPace(p.base)}): ${g.estLabel}. ` +
+        `If the last 30 days hold (${p.recent === null ? "n/a" : rmPace(p.recent)}): ${g.estFastLabel}.`]);
+    }
+    if (g.neededPace !== null && g.targetStart) {
+      rows.push(["Pace needed", `To be able to afford it by ${rmDate(g.targetStart)} you'd need about ${rmPace(g.neededPace)} of new recurring revenue. ` +
+        `The 90-day pace is ${p.base === null ? "n/a" : rmPace(p.base)}; the last 30 days ${p.recent === null ? "n/a" : rmPace(p.recent)}.`]);
+    }
+  } else {
+    rows.push(["Money", "This needs revenue first, but its unlock level isn't set yet. Once it is, this card will show whether the numbers get you there on your date."]);
+  }
+  if (g.note) rows.push(["Note", g.note]);
+  return `<div class="rmdhead"><h4>${esc(g.title)}</h4><span class="rmkind">${esc(RM_KIND[g.kind] || "Goal")}</span>
+      <button class="qc" type="button" data-close aria-label="Close details">✕</button></div>
+    <dl class="rmdl">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>`;
+}
+
 function renderHorizon() {
+  const R = S.goals.roadmap;
+  const root = el("rm-root");
+  if (!R) { root.hidden = true; el("hz-track").hidden = false; return renderHorizonLegacy(); }
+  el("hz-track").hidden = true;
+  root.hidden = false;
+  el("hz-label").textContent = R.label;
+  if (RM.sel && !rmFind(R, RM.sel)) RM.sel = null;
+
+  const done = (R.done || []).map((d) => `<span class="rmdone" title="${esc(d.note)}">✓ ${esc(d.title)}</span>`).join("");
+  const cols = R.windows.map((w) => {
+    const load = w.load.used
+      ? `<div class="rmload${w.load.over ? " over" : ""}" title="Funded-now goals take your time">Your time ${w.load.used} of ${w.load.cap}${
+          w.load.over ? " · over your limit" : ""}</div>` : "";
+    return `<section class="rmcol${w.load.over ? " over" : ""}" aria-label="${esc(w.label)}">
+      <header class="rmch"><div class="rmcl">${esc(w.label)}</div><div class="rmcs">${esc(w.sub)}</div>${load}</header>
+      <div class="rmcards">${w.goals.length ? w.goals.map((g) => rmCard(g, RM.sel)).join("")
+        : `<div class="rmempty">Nothing planned</div>`}</div></section>`;
+  }).join("");
+
+  root.innerHTML = `${rmMeter(R)}
+    ${done ? `<div class="rmdonerow"><span class="rmdk">Achieved</span>${done}</div>` : ""}
+    <div class="rmboard">${cols}</div>
+    <div class="rmdetail" id="rm-detail" aria-live="polite">${rmDetail(R, RM.sel ? rmFind(R, RM.sel) : null)}</div>`;
+
+  if (!RM.wired) {
+    RM.wired = true;
+    root.addEventListener("click", (e) => {
+      const R2 = S.goals.roadmap;
+      if (e.target.closest("[data-close]")) { RM.sel = null; renderHorizon(); return; }
+      const card = e.target.closest(".rmcard");
+      if (!card || !R2) return;
+      RM.sel = RM.sel === card.dataset.id ? null : card.dataset.id;
+      renderHorizon();
+      const again = root.querySelector(`.rmcard[data-id="${CSS.escape(card.dataset.id)}"]`);
+      if (again) again.focus({ preventScroll: true });
+      const d = el("rm-detail");
+      if (RM.sel && d) d.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+  }
+}
+
+function renderHorizonLegacy() {
   const h = S.goals.horizon;
   el("hz-label").textContent = h.label;
 
