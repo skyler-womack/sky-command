@@ -864,14 +864,54 @@ const CI_STATUS = {
 const band = (p) =>
   (p === null || p === undefined ? "" : p >= 75 ? "good" : p >= 50 ? "mid" : "low");
 
+// ── check-in lock ───────────────────────────────────────
+// Once a check-in is filed, the button stays dead until 1:00 AM Houston time
+// on the next Sunday. The publisher ships lockedUntil; the localStorage marker
+// covers the ~30 minutes between filing and the next publish.
+const CI_LOCK_KEY = "skycmd_ci_unlock_v1";
+const CT_ZONE = "America/Chicago";
+const CI_TIMER = { id: null };
+
+/** Houston wall clock minus UTC (ms) at instant ms. */
+function ctOffsetMs(ms) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: CT_ZONE, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric",
+    hour: "numeric", minute: "numeric", second: "numeric",
+  }).formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+  return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - Math.floor(ms / 1000) * 1000;
+}
+/** UTC instant for a Houston wall-clock time (month 0-based; day may overflow). */
+function ctWallToUtc(y, m, d, h) {
+  const guess = Date.UTC(y, m, d, h);
+  return guess - ctOffsetMs(guess - ctOffsetMs(guess));
+}
+/** Next Sunday 1:00 AM Houston time strictly after fromMs. */
+function nextCheckinOpen(fromMs) {
+  const w = new Date(fromMs + ctOffsetMs(fromMs));
+  const ahead = (7 - w.getUTCDay()) % 7;
+  const at = (extra) => ctWallToUtc(w.getUTCFullYear(), w.getUTCMonth(), w.getUTCDate() + ahead + extra, 1);
+  const t = at(0);
+  return t > fromMs ? t : at(7);
+}
+/** ms timestamp the button reopens, or 0 when it is clickable. */
+function ciLockedUntil() {
+  let until = S && S.checkin && S.checkin.lockedUntil ? Date.parse(S.checkin.lockedUntil) || 0 : 0;
+  try { until = Math.max(until, +localStorage.getItem(CI_LOCK_KEY) || 0); } catch { /* private mode */ }
+  return until > Date.now() ? until : 0;
+}
+const ciOpensLabel = (ms) => new Date(ms).toLocaleString("en-US",
+  { timeZone: CT_ZONE, weekday: "long", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
 function renderCheckin() {
   const c = S.checkin;
-  const st = CI_STATUS[c.status] || CI_STATUS.empty;
+  const lock = ciLockedUntil();
+  const status = lock ? "done" : c.status;
+  const st = CI_STATUS[status] || CI_STATUS.empty;
   const head = `
     <div class="chead">
       <div class="ic" style="background:var(--goldsoft)">🌅</div>
       <span class="ctitle">${esc(c.name)}</span>
-      <span class="cstatus ${esc(c.status)}"><span class="dot ${st.dot}"></span>${st.label}</span>
+      <span class="cstatus ${esc(status)}"><span class="dot ${st.dot}"></span>${st.label}</span>
     </div>`;
 
   if (c.status === "empty" || !c.score || c.score.pct === null) {
@@ -915,12 +955,17 @@ function renderCheckin() {
     </div>
     ${carry ? `<div class="ppcarry"><span>Carrying into this week —</span> ${esc(carry)}</div>` : ""}
     <div class="ppactions">
-      <button class="btn-gold" id="ci-open">${c.status === "done" ? "Revise check-in" : "Start check-in"}</button>
+      ${lock
+        ? `<button class="btn-gold" id="ci-open" type="button" disabled aria-disabled="true"
+             title="Reopens ${esc(ciOpensLabel(lock))}">✓ Filed for this week</button>`
+        : `<button class="btn-gold" id="ci-open" type="button">${c.status === "done" ? "Revise check-in" : "Start check-in"}</button>`}
       <button class="qc" id="pp-dash">📊 Dashboard</button>
-      <span class="cistatus">${esc(c.statusNote)}</span>
+      <span class="cistatus">${lock ? `Next check-in opens ${esc(ciOpensLabel(lock))}.` : esc(c.statusNote)}</span>
     </div>`;
   el("ci-open").onclick = openCheckin;
   el("pp-dash").onclick = openDashboard;
+  clearTimeout(CI_TIMER.id);
+  if (lock) CI_TIMER.id = setTimeout(renderCheckin, Math.min(lock - Date.now() + 1500, 2 ** 31 - 1));
 }
 
 // ── weekly check-in form ────────────────────────────────
@@ -946,6 +991,7 @@ function planningMonday(now = new Date()) {
 const CI = { ratings: {}, goals: {}, week: null, draftKey: null };
 
 function openCheckin() {
+  if (ciLockedUntil()) return;
   const c = S.checkin;
   const monday = planningMonday();
   CI.week = isoDate(monday);
@@ -1244,6 +1290,8 @@ async function saveCheckin() {
     if (!r.ok) throw new Error("GitHub " + r.status);
 
     try { localStorage.removeItem(CI.draftKey); } catch { /* nothing to clear */ }
+    try { localStorage.setItem(CI_LOCK_KEY, String(nextCheckinOpen(Date.now()))); } catch { /* private mode */ }
+    renderCheckin();
     status.className = "cistatus ok";
     status.textContent = `✓ Filed — ${answered}/${S.checkin.ruleCount} rated. The board picks it up within ~30 min.`;
     el("ci-draft").textContent = "";
@@ -1609,7 +1657,7 @@ function dashReports(d) {
   });
 
   const c = S.checkin;
-  const due = c.status === "due" || c.status === "overdue";
+  const due = !ciLockedUntil() && (c.status === "due" || c.status === "overdue");
   const banner = due ? `
     <div class="cddue ${esc(c.status)}">
       <div class="ic">${c.status === "overdue" ? "!" : "●"}</div>
